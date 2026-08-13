@@ -8,6 +8,9 @@
 typedef enum 
 {
     CMD_CREATE_GAME,     // no extra payload needed
+    CMD_GAME_CREATED,    // payload: game_created (game_id) - reply to CMD_CREATE_GAME
+    CMD_LIST_GAMES,      // no extra payload needed
+    CMD_GAME_LIST,       // payload: game_list - reply to CMD_LIST_GAMES
     CMD_JOIN_GAME,       // payload: join_request (game_id)
     CMD_JOIN_RESPONSE,   // payload: join_response (game_id, accepted) - sent by the game owner
     CMD_MOVE,            // payload TODO: defined when game logic is implemented (Phase 4)
@@ -15,6 +18,15 @@ typedef enum
     CMD_ERROR,
     CMD_WELCOME          // sent by the server right after accept(); payload: welcome (assigned client_id/username)
 } CommandType;
+
+// State machine for a single game: WAITING (just created, joinable) ->
+// PLAYING (two players in, moves being made) -> FINISHED (won/lost/draw).
+typedef enum
+{
+    GAME_WAITING,
+    GAME_PLAYING,
+    GAME_FINISHED
+} GameState;
 
 typedef struct __attribute__((packed)) 
 {
@@ -44,6 +56,32 @@ typedef struct __attribute__((packed))
     char username[USERNAME_LEN];
 } Welcome;
 
+// Sent by the server in reply to CMD_CREATE_GAME, telling the creator
+// the id assigned to their new game.
+typedef struct __attribute__((packed))
+{
+    int game_id;
+} GameCreated;
+
+#define MAX_GAMES_IN_LIST 32
+
+// One entry of a CMD_GAME_LIST reply.
+typedef struct __attribute__((packed))
+{
+    int game_id;
+    char owner_username[USERNAME_LEN];
+    GameState state;
+} GameInfo;
+
+// Sent by the server in reply to CMD_LIST_GAMES. Only WAITING games are
+// included: PLAYING/FINISHED games aren't joinable, so there's nothing
+// a listing client could do with them at this stage.
+typedef struct __attribute__((packed))
+{
+    int count;
+    GameInfo games[MAX_GAMES_IN_LIST];
+} GameList;
+
 // Payload varies depending on header.type: only the member matching
 // the current command should be read/written. Using a union (instead
 // of one generic "int data" field) lets each command carry exactly
@@ -54,6 +92,8 @@ typedef union __attribute__((packed))
     JoinRequest join_request;
     JoinResponse join_response;
     Welcome welcome;
+    GameCreated game_created;
+    GameList game_list;
     // MOVE and GAME_STATE payloads will be added here once the actual
     // Connect4 game logic is implemented (grid, turns, etc).
 } Payload;

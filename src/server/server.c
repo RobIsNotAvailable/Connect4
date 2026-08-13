@@ -74,6 +74,82 @@ void client_list_remove(int sock)
     pthread_mutex_unlock(&g_clients.mutex);
 }
 
+#define MAX_GAMES 64
+
+// Bookkeeping for a single game: identity + owner + current state.
+// owner_sock is kept (not just the username) so a future phase can send
+// the join notification directly to the owner's socket without another
+// lookup in the client registry.
+typedef struct
+{
+    int id;
+    int owner_sock;
+    char owner_username[USERNAME_LEN];
+    GameState state;
+} Game;
+
+// Thread-safe registry of games, mirroring ClientList: fixed-size array
+// + a single mutex protecting both the array and the id counter.
+typedef struct
+{
+    Game games[MAX_GAMES];
+    int count;
+    int next_id;
+    pthread_mutex_t mutex;
+} GameRegistry;
+
+static GameRegistry g_games = {
+    .count = 0,
+    .next_id = 1,
+    .mutex = PTHREAD_MUTEX_INITIALIZER
+};
+
+// Creates a new game owned by (owner_sock, owner_username), state WAITING.
+// Returns the created Game, or a Game with id == -1 if the registry is full.
+// No check on whether owner already owns another game: not required yet
+// (Phase 2), to be decided/added when join/accept semantics are defined.
+Game game_registry_create(int owner_sock, const char *owner_username)
+{
+    Game new_game = { .id = -1, .owner_sock = owner_sock, .state = GAME_WAITING };
+    strncpy(new_game.owner_username, owner_username, USERNAME_LEN);
+
+    pthread_mutex_lock(&g_games.mutex);
+
+    if (g_games.count < MAX_GAMES)
+    {
+        new_game.id = g_games.next_id++;
+        g_games.games[g_games.count++] = new_game;
+    }
+
+    pthread_mutex_unlock(&g_games.mutex);
+
+    return new_game;
+}
+
+// Fills 'out' with up to MAX_GAMES_IN_LIST currently WAITING games.
+// Returns how many were copied.
+int game_registry_list_waiting(GameInfo *out)
+{
+    int n = 0;
+
+    pthread_mutex_lock(&g_games.mutex);
+
+    for (int i = 0; i < g_games.count && n < MAX_GAMES_IN_LIST; i++)
+    {
+        if (g_games.games[i].state == GAME_WAITING)
+        {
+            out[n].game_id = g_games.games[i].id;
+            strncpy(out[n].owner_username, g_games.games[i].owner_username, USERNAME_LEN);
+            out[n].state = g_games.games[i].state;
+            n++;
+        }
+    }
+
+    pthread_mutex_unlock(&g_games.mutex);
+
+    return n;
+}
+
 void *client_handler(void *sock_id)
 {
     int client_sock = *(int *)sock_id;
@@ -106,7 +182,37 @@ void *client_handler(void *sock_id)
     {
         printf("[SERVER] [%s] Received command type: %d\n", me.username, pktptr->header.type);
 
-        send(client_sock, pktptr, sizeof(Packet), 0);
+        Packet reply;
+
+        switch (pktptr->header.type)
+        {
+            case CMD_CREATE_GAME:
+            {
+                Game g = game_registry_create(client_sock, me.username);
+
+                reply.header.type = CMD_GAME_CREATED;
+                reply.header.payload_size = sizeof(GameCreated);
+                reply.payload.game_created.game_id = g.id;
+                break;
+            }
+            case CMD_LIST_GAMES:
+            {
+                GameList list;
+                list.count = game_registry_list_waiting(list.games);
+
+                reply.header.type = CMD_GAME_LIST;
+                reply.header.payload_size = sizeof(GameList);
+                reply.payload.game_list = list;
+                break;
+            }
+            default:
+                printf("[SERVER] [%s] Unhandled command type: %d\n", me.username, pktptr->header.type);
+                reply.header.type = CMD_ERROR;
+                reply.header.payload_size = 0;
+                break;
+        }
+
+        send(client_sock, &reply, sizeof(Packet), 0);
     }
     if (comm_status == 0)
     {

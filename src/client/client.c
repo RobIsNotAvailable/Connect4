@@ -6,6 +6,60 @@
 #include "protocol.h"
 
 
+// Sends CMD_CREATE_GAME and prints the id assigned by the server.
+void create_game(int sock)
+{
+    Packet req;
+    req.header.type = CMD_CREATE_GAME;
+    req.header.payload_size = 0;
+    send(sock, &req, sizeof(Packet), 0);
+
+    Packet resp;
+    if (recv(sock, &resp, sizeof(Packet), 0) <= 0 || resp.header.type != CMD_GAME_CREATED)
+    {
+        fprintf(stderr, "[CLIENT] Did not receive a valid CMD_GAME_CREATED reply\n");
+        return;
+    }
+
+    if (resp.payload.game_created.game_id == -1)
+    {
+        printf("[CLIENT] Server could not create the game (registry full)\n");
+    }
+    else
+    {
+        printf("[CLIENT] Game created, id=%d\n", resp.payload.game_created.game_id);
+    }
+}
+
+// Sends CMD_LIST_GAMES and prints the WAITING games returned by the server.
+void list_games(int sock)
+{
+    Packet req;
+    req.header.type = CMD_LIST_GAMES;
+    req.header.payload_size = 0;
+    send(sock, &req, sizeof(Packet), 0);
+
+    Packet resp;
+    if (recv(sock, &resp, sizeof(Packet), 0) <= 0 || resp.header.type != CMD_GAME_LIST)
+    {
+        fprintf(stderr, "[CLIENT] Did not receive a valid CMD_GAME_LIST reply\n");
+        return;
+    }
+
+    GameList *list = &resp.payload.game_list;
+    if (list->count == 0)
+    {
+        printf("[CLIENT] No games waiting for players\n");
+        return;
+    }
+
+    printf("[CLIENT] Games waiting for players:\n");
+    for (int i = 0; i < list->count; i++)
+    {
+        printf("  id=%d owner=%s\n", list->games[i].game_id, list->games[i].owner_username);
+    }
+}
+
 int main()
 {
     int sock = 0;
@@ -54,6 +108,29 @@ int main()
     }
 
     free(pktptr);
+
+    // Minimal menu to exercise CMD_CREATE_GAME / CMD_LIST_GAMES for now.
+    // Will be replaced by the full textual menu + grid rendering in Phase 7.
+    int choice = 0;
+    do
+    {
+        printf("\n1) Create game\n2) List games\n0) Exit\n> ");
+        if (scanf("%d", &choice) != 1)
+        {
+            break;
+        }
+
+        switch (choice)
+        {
+            case 1:
+                create_game(sock);
+                break;
+            case 2:
+                list_games(sock);
+                break;
+        }
+    } while (choice != 0);
+
     close(sock);
     return 0;
 }
