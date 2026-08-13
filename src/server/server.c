@@ -6,30 +6,118 @@
 #include <pthread.h>
 #include "protocol.h"
 
+#define MAX_CLIENTS 64
+
+// Bookkeeping for a single connected client: identity + its socket.
+typedef struct
+{
+    int id;
+    int sock;
+    char username[USERNAME_LEN];
+} Client;
+
+// Thread-safe registry of currently connected clients. Fixed-size array
+// (no dynamic list) so add/remove don't need per-node malloc/free; a
+// single mutex protects both the array and the id counter, since they
+// are always modified together.
+typedef struct
+{
+    Client clients[MAX_CLIENTS];
+    int count;
+    int next_id;
+    pthread_mutex_t mutex;
+} ClientList;
+
+static ClientList g_clients = {
+    .count = 0,
+    .next_id = 1,
+    .mutex = PTHREAD_MUTEX_INITIALIZER
+};
+
+// Registers a new client and assigns it an id/username. Returns the
+// assigned Client, or a Client with id == -1 if the registry is full.
+Client client_list_add(int sock)
+{
+    Client new_client = { .id = -1, .sock = sock, .username = {0} };
+
+    pthread_mutex_lock(&g_clients.mutex);
+
+    if (g_clients.count < MAX_CLIENTS)
+    {
+        new_client.id = g_clients.next_id++;
+        snprintf(new_client.username, USERNAME_LEN, "Player%d", new_client.id);
+        g_clients.clients[g_clients.count++] = new_client;
+    }
+
+    pthread_mutex_unlock(&g_clients.mutex);
+
+    return new_client;
+}
+
+// Removes the client owning the given socket from the registry, if present.
+void client_list_remove(int sock)
+{
+    pthread_mutex_lock(&g_clients.mutex);
+
+    for (int i = 0; i < g_clients.count; i++)
+    {
+        if (g_clients.clients[i].sock == sock)
+        {
+            // Swap-with-last removal: order doesn't matter for this list,
+            // so this avoids shifting every following element.
+            g_clients.clients[i] = g_clients.clients[g_clients.count - 1];
+            g_clients.count--;
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&g_clients.mutex);
+}
+
 void *client_handler(void *sock_id)
 {
     int client_sock = *(int *)sock_id;
+    free(sock_id); // was never freed before: leaked one int per connection
 
-    printf("[SERVER] New client connected on socket %d\n", client_sock);
+    Client me = client_list_add(client_sock);
+    if (me.id == -1)
+    {
+        printf("[SERVER] Rejecting client on socket %d: registry full (max %d clients)\n",
+               client_sock, MAX_CLIENTS);
+        close(client_sock);
+        pthread_exit(NULL);
+    }
+
+    printf("[SERVER] New client connected on socket %d, assigned id=%d username=%s\n",
+           client_sock, me.id, me.username);
+
+    // Tell the client which identity it was assigned.
+    Packet welcome_pkt;
+    welcome_pkt.header.type = CMD_WELCOME;
+    welcome_pkt.header.payload_size = sizeof(Welcome);
+    welcome_pkt.payload.welcome.client_id = me.id;
+    strncpy(welcome_pkt.payload.welcome.username, me.username, USERNAME_LEN);
+    send(client_sock, &welcome_pkt, sizeof(Packet), 0);
 
     Packet* pktptr = malloc(sizeof(Packet));
     int comm_status;
 
     while ((comm_status = recv(client_sock, pktptr, sizeof(Packet), 0)) > 0)
     {
-        printf("[SERVER] Received command type: %d\n", pktptr->header.type);
+        printf("[SERVER] [%s] Received command type: %d\n", me.username, pktptr->header.type);
 
         send(client_sock, pktptr, sizeof(Packet), 0);
     }
     if (comm_status == 0)
     {
-        printf("[SERVER] Client on socket %d disconnected\n", client_sock);
+        printf("[SERVER] Client %s (socket %d) disconnected\n", me.username, client_sock);
     }
     else
     {
         perror("[SERVER] Error in receiving data from client\n");
     }
 
+    client_list_remove(client_sock);
     close(client_sock);
     free(pktptr);
     pthread_exit(NULL);

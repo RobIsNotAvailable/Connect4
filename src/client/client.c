@@ -37,17 +37,20 @@ int main()
     }
 
     Packet* pktptr = malloc(sizeof(Packet));
-    pktptr->header.type = CMD_CREATE_GAME;
-    pktptr->header.payload_size = 0; // CMD_CREATE_GAME carries no payload
 
-    send(sock, pktptr, sizeof(Packet), 0);
-
-    // Connectivity test only: the server currently just echoes the
-    // packet back. Real CMD_CREATE_GAME handling (assigning a game id,
-    // etc.) will be added on the server side in Phase 2.
-    if (recv(sock, pktptr, sizeof(Packet), 0) > 0)
+    // The server assigns an id/username right after accept(); this is the
+    // first message we expect to receive.
+    if (recv(sock, pktptr, sizeof(Packet), 0) > 0 && pktptr->header.type == CMD_WELCOME)
     {
-        printf("[CLIENT] Server echoed command type: %d\n", pktptr->header.type);
+        printf("[CLIENT] Connected as %s (id=%d)\n",
+               pktptr->payload.welcome.username, pktptr->payload.welcome.client_id);
+    }
+    else
+    {
+        fprintf(stderr, "[CLIENT] Did not receive a valid welcome message from the server\n");
+        free(pktptr);
+        close(sock);
+        return -1;
     }
 
     free(pktptr);

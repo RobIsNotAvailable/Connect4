@@ -3,6 +3,7 @@
 
 #define PORT 8080
 #define BUFFER_SIZE 256
+#define USERNAME_LEN 32
 
 typedef enum 
 {
@@ -11,7 +12,8 @@ typedef enum
     CMD_JOIN_RESPONSE,   // payload: join_response (game_id, accepted) - sent by the game owner
     CMD_MOVE,            // payload TODO: defined when game logic is implemented (Phase 4)
     CMD_GAME_STATE,      // payload TODO: defined when game logic is implemented (Phase 4)
-    CMD_ERROR
+    CMD_ERROR,
+    CMD_WELCOME          // sent by the server right after accept(); payload: welcome (assigned client_id/username)
 } CommandType;
 
 typedef struct __attribute__((packed)) 
@@ -33,6 +35,15 @@ typedef struct __attribute__((packed))
     int accepted; // 0 = refused, 1 = accepted
 } JoinResponse;
 
+// Sent by the server right after accept(), informing the client of the
+// id/username it has been assigned. Used to know who is "in game" and
+// who isn't in later phases.
+typedef struct __attribute__((packed))
+{
+    int client_id;
+    char username[USERNAME_LEN];
+} Welcome;
+
 // Payload varies depending on header.type: only the member matching
 // the current command should be read/written. Using a union (instead
 // of one generic "int data" field) lets each command carry exactly
@@ -42,6 +53,7 @@ typedef union __attribute__((packed))
 {
     JoinRequest join_request;
     JoinResponse join_response;
+    Welcome welcome;
     // MOVE and GAME_STATE payloads will be added here once the actual
     // Connect4 game logic is implemented (grid, turns, etc).
 } Payload;
