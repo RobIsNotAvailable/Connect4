@@ -13,16 +13,12 @@ void *client_handler(void *sock_id)
     printf("[SERVER] New client connected on socket %d\n", client_sock);
 
     Packet* pktptr = malloc(sizeof(Packet));
-    int add = 0;
-
     int comm_status;
 
     while ((comm_status = recv(client_sock, pktptr, sizeof(Packet), 0)) > 0)
     {
-        printf("[SERVER] Received: %d\n", pktptr->data);
-        printf("[SERVER] How much to add?\n");
-        scanf("%d", &add);
-        pktptr->data += add;
+        printf("[SERVER] Received command type: %d\n", pktptr->header.type);
+
         send(client_sock, pktptr, sizeof(Packet), 0);
     }
     if (comm_status == 0)
