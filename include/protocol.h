@@ -11,8 +11,10 @@ typedef enum
     CMD_GAME_CREATED,    // payload: game_created (game_id) - reply to CMD_CREATE_GAME
     CMD_LIST_GAMES,      // no extra payload needed
     CMD_GAME_LIST,       // payload: game_list - reply to CMD_LIST_GAMES
-    CMD_JOIN_GAME,       // payload: join_request (game_id)
+    CMD_JOIN_GAME,       // payload: join_request (game_id) - client asking to join
+    CMD_JOIN_NOTIFY,     // payload: join_notify (game_id, joiner_username) - server push to the owner
     CMD_JOIN_RESPONSE,   // payload: join_response (game_id, accepted) - sent by the game owner
+    CMD_JOIN_RESULT,     // payload: join_result (game_id, accepted) - server push to the joiner
     CMD_MOVE,            // payload TODO: defined when game logic is implemented (Phase 4)
     CMD_GAME_STATE,      // payload TODO: defined when game logic is implemented (Phase 4)
     CMD_ERROR,
@@ -46,6 +48,20 @@ typedef struct __attribute__((packed))
     int game_id;
     int accepted; // 0 = refused, 1 = accepted
 } JoinResponse;
+
+// Server push to the owner: someone wants to join their game.
+typedef struct __attribute__((packed))
+{
+    int game_id;
+    char joiner_username[USERNAME_LEN];
+} JoinNotify;
+
+// Server push to the joiner: outcome of their join request.
+typedef struct __attribute__((packed))
+{
+    int game_id;
+    int accepted; // 0 = refused, 1 = accepted
+} JoinResult;
 
 // Sent by the server right after accept(), informing the client of the
 // id/username it has been assigned. Used to know who is "in game" and
@@ -91,6 +107,8 @@ typedef union __attribute__((packed))
 {
     JoinRequest join_request;
     JoinResponse join_response;
+    JoinNotify join_notify;
+    JoinResult join_result;
     Welcome welcome;
     GameCreated game_created;
     GameList game_list;
