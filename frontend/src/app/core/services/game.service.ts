@@ -1,8 +1,9 @@
 import { Observable } from 'rxjs';
-import { Game } from '../models/game.model';
+import { Game, GameSummary } from '../models/game.model';
 
 export abstract class GameService {
-  abstract listGames(): Observable<Game[]>;
-  abstract createGame(name: string): Observable<Game>;
-  abstract joinGame(gameId: string): Observable<Game>;
+  abstract listGames(): Observable<GameSummary[]>;
+  abstract getGame(id: string): Observable<Game>;
+  abstract createGame(name: string): Observable<GameSummary>;
+  abstract joinGame(gameId: string): Observable<GameSummary>;
 }

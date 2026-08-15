@@ -32,7 +32,7 @@
     @for (game of games(); track game.id) {
       <button class="game-card" (click)="openGame(game)">
         <app-disc
-          [color]="game.players[0].color"
+          [color]="game.yourColor"
           [active]="game.status === 'playing' && game.isYourTurn"
         />
         <span class="game-card__name">{{ game.name }}</span>

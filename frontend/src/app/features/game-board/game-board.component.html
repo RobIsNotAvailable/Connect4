@@ -1,0 +1,27 @@
+<header class="game-board__topbar">
+  <a routerLink="/" class="game-board__brand">Connect4</a>
+
+  @if (openGames().length > 0) {
+    <app-game-tab-strip
+      class="game-board__tabs"
+      [games]="openGames()"
+      [activeGameId]="game()?.id ?? ''"
+      (gameSelected)="onGameSelected($event)"
+    />
+  }
+
+  <span class="game-board__topbar-spacer" aria-hidden="true"></span>
+</header>
+
+@if (game(); as g) {
+  <div class="game-board__header">
+    <h2>{{ g.name }}</h2>
+    <span class="game-board__turn">
+      {{ g.isYourTurn ? 'Tocca a te' : 'Turno avversario' }}
+    </span>
+  </div>
+
+  <app-board-grid [board]="g.board" (columnClick)="onColumnClick($event)" />
+} @else {
+  <p class="game-board__loading">Caricamento partita...</p>
+}

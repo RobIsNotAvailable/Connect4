@@ -1,0 +1,17 @@
+<div class="tab-strip" role="tablist">
+  @for (game of games(); track game.id) {
+    <button
+      class="tab-strip__tab"
+      [class.tab-strip__tab--current]="game.id === activeGameId()"
+      role="tab"
+      [attr.aria-selected]="game.id === activeGameId()"
+      [title]="game.name"
+      (click)="gameSelected.emit(game.id)"
+    >
+      <app-disc
+        [color]="game.yourColor"
+        [active]="game.status === 'playing' && game.isYourTurn"
+      />
+    </button>
+  }
+</div>

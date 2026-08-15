@@ -1,7 +1,7 @@
 import { Component, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { GameService } from '../../core/services/game.service';
-import { Game } from '../../core/models/game.model';
+import { GameSummary } from '../../core/models/game.model';
 import { DiscComponent } from '../../shared/components/disc/disc.component';
 
 @Component({
@@ -15,7 +15,7 @@ export class HomeComponent {
   private gameService = inject(GameService);
   private router = inject(Router);
 
-  games = signal<Game[]>([]);
+  games = signal<GameSummary[]>([]);
   newGameName = signal('');
   showCreateForm = signal(false);
 
@@ -42,7 +42,7 @@ export class HomeComponent {
     });
   }
 
-  openGame(game: Game) {
+  openGame(game: GameSummary) {
     this.router.navigate(['/game', game.id]);
   }
 }

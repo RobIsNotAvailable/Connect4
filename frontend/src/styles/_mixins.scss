@@ -6,7 +6,7 @@
 
 @mixin focus-ring {
   &:focus-visible {
-    outline: 2px solid var(--board-blue);
+    outline: 2px solid var(--primary);
     outline-offset: 2px;
   }
 }

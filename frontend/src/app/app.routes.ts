@@ -1,7 +1,8 @@
 import { Routes } from '@angular/router';
 import { HomeComponent } from './features/home/home.component';
+import { GameBoardComponent } from './features/game-board/game-board.component';
 
 export const routes: Routes = [
   { path: '', component: HomeComponent },
-  // 'game/:id' arriva nel prossimo step, quando creiamo GameBoardComponent
+  { path: 'game/:id', component: GameBoardComponent },
 ];
