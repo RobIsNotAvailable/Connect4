@@ -1,0 +1,12 @@
+@mixin card-surface {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+@mixin focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--board-blue);
+    outline-offset: 2px;
+  }
+}

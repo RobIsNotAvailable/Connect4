@@ -1,0 +1,43 @@
+<header class="home__header">
+  <h1>Connect4</h1>
+</header>
+
+<section class="home__actions">
+  <button class="btn btn--primary" (click)="toggleCreateForm()">
+    Crea partita
+  </button>
+  <button class="btn btn--secondary">Unisciti a una partita</button>
+</section>
+
+@if (showCreateForm()) {
+  <section class="home__create-form">
+    <input
+      type="text"
+      placeholder="Nome partita"
+      [value]="newGameName()"
+      (input)="newGameName.set($any($event.target).value)"
+    />
+    <button class="btn btn--primary" (click)="confirmCreate()">Conferma</button>
+  </section>
+}
+
+<section class="home__games">
+  <h2>Partite in corso</h2>
+
+  @if (games().length === 0) {
+    <p class="home__empty">Nessuna partita in corso. Creane una per iniziare.</p>
+  }
+
+  <div class="home__games-grid">
+    @for (game of games(); track game.id) {
+      <button class="game-card" (click)="openGame(game)">
+        <app-disc
+          [color]="game.players[0].color"
+          [active]="game.status === 'playing' && game.isYourTurn"
+        />
+        <span class="game-card__name">{{ game.name }}</span>
+        <span class="game-card__status">{{ game.status }}</span>
+      </button>
+    }
+  </div>
+</section>

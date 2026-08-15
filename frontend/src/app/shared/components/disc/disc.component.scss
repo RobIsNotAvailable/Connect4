@@ -1,0 +1,19 @@
+.disc {
+  border-radius: var(--radius-full);
+  border: 2px solid var(--board-blue);
+  transition: box-shadow 0.2s ease, opacity 0.2s ease;
+  opacity: 0.55; // default: waiting / inactive state
+
+  &--sm { width: 20px; height: 20px; }
+  &--md { width: 32px; height: 32px; }
+  &--lg { width: 56px; height: 56px; }
+
+  &--red { background: var(--player-red); }
+  &--yellow { background: var(--player-yellow); }
+  &--neutral { background: var(--surface-alt); }
+
+  &--active {
+    opacity: 1;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--board-blue) 25%, transparent);
+  }
+}

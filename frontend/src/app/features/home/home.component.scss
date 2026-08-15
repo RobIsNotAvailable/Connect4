@@ -1,0 +1,113 @@
+@use '../../../styles/mixins';
+
+.home__header {
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+}
+
+.home__actions {
+  display: flex;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-lg);
+}
+
+.btn {
+  font-family: var(--font-body);
+  font-size: 1rem;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.15s ease, box-shadow 0.15s ease;
+  @include mixins.focus-ring;
+
+  &:active {
+    transform: scale(0.97);
+  }
+
+  &--primary {
+    background: var(--board-blue);
+    color: white;
+
+    &:hover {
+      background: var(--board-blue-light);
+    }
+  }
+
+  &--secondary {
+    background: var(--surface-alt);
+    color: var(--ink);
+    border: 1px solid var(--border);
+
+    &:hover {
+      background: var(--surface);
+      border-color: var(--board-blue);
+    }
+  }
+}
+
+.home__create-form {
+  display: flex;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg) var(--space-lg);
+
+  input {
+    flex: 1;
+    padding: var(--space-sm);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    font-family: var(--font-body);
+
+    &:focus-visible {
+      outline: 2px solid var(--board-blue);
+      outline-offset: 1px;
+      border-color: var(--board-blue);
+    }
+  }
+}
+
+.home__games {
+  padding: 0 var(--space-lg);
+}
+
+.home__empty {
+  color: var(--ink-muted);
+}
+
+.home__games-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-md);
+}
+
+.game-card {
+  @include mixins.card-surface;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-body);
+  transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  @include mixins.focus-ring;
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: var(--board-blue);
+    box-shadow: 0 4px 12px rgba(30, 58, 95, 0.08);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  &__name { font-weight: 600; }
+
+  &__status {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+  }
+}
