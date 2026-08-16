@@ -1,14 +1,15 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { GameService } from '../../core/services/game.service';
 import { Game, GameSummary } from '../../core/models/game.model';
 import { BoardGridComponent } from '../../shared/components/board-grid/board-grid.component';
+import { PlayerBadgeComponent } from '../../shared/components/player-badge/player-badge.component';
 import { GameTabStripComponent } from './game-tab-strip/game-tab-strip.component';
 
 @Component({
   selector: 'app-game-board',
   standalone: true,
-  imports: [BoardGridComponent, GameTabStripComponent, RouterLink],
+  imports: [BoardGridComponent, PlayerBadgeComponent, GameTabStripComponent, RouterLink],
   templateUrl: './game-board.component.html',
   styleUrl: './game-board.component.scss',
 })
@@ -19,6 +20,11 @@ export class GameBoardComponent {
 
   game = signal<Game | null>(null);
   openGames = signal<GameSummary[]>([]);
+
+  // Il colore identifica sempre lo stesso lato del tabellone (blu a
+  // sinistra, rosso a destra), indipendentemente da chi sei tu.
+  bluePlayer = computed(() => this.game()?.players.find((p) => p.color === 'blue') ?? null);
+  redPlayer = computed(() => this.game()?.players.find((p) => p.color === 'red') ?? null);
 
   constructor() {
     // Angular riusa questo componente quando si passa da /game/g1 a /game/g2,
