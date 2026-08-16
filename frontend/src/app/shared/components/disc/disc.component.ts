@@ -11,6 +11,6 @@ import { PlayerColor } from '../../../core/models/game.model';
 export class DiscComponent {
   color = input<PlayerColor | 'neutral'>('neutral');
   size = input<'sm' | 'md' | 'lg'>('md');
-  variant = input<'indicator' | 'piece'>('indicator');
+  variant = input<'indicator' | 'piece' | 'ghost'>('indicator');
   active = input(false);
 }

@@ -23,7 +23,11 @@
       <span class="game-board__turn">
         {{ g.isYourTurn ? 'Tocca a te' : 'Turno avversario' }}
       </span>
-      <app-board-grid [board]="g.board" (columnClick)="onColumnClick($event)" />
+      <app-board-grid
+        [board]="g.board"
+        [nextColor]="g.currentTurnColor"
+        (columnClick)="onColumnClick($event)"
+      />
     </div>
 
     <app-player-badge class="game-board__player game-board__player--right" [player]="redPlayer()" />

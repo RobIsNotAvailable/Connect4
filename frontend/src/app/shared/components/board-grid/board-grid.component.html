@@ -5,13 +5,15 @@
       type="button"
       [attr.aria-label]="'Colonna ' + (colIndex + 1)"
       (click)="columnClick.emit(colIndex)"
+      (mouseenter)="hoveredColumn.set(colIndex)"
+      (mouseleave)="hoveredColumn.set(null)"
     >
       @for (rowIndex of rowIndices; track rowIndex) {
-        <app-disc
-          [color]="board()[rowIndex][colIndex] ?? 'neutral'"
-          variant="piece"
-          size="lg"
-        />
+        @if (hoveredColumn() === colIndex && previewRowFor(colIndex) === rowIndex) {
+          <app-disc [color]="nextColor()" variant="ghost" size="lg" />
+        } @else {
+          <app-disc [color]="board()[rowIndex][colIndex] ?? 'neutral'" variant="piece" size="lg" />
+        }
       }
     </button>
   }
