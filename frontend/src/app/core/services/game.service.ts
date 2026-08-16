@@ -6,4 +6,5 @@ export abstract class GameService {
   abstract getGame(id: string): Observable<Game>;
   abstract createGame(name: string): Observable<GameSummary>;
   abstract joinGame(gameId: string): Observable<GameSummary>;
+  abstract dropDisc(gameId: string, column: number): Observable<Game>;
 }

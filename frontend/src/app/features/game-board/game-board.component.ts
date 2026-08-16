@@ -45,7 +45,14 @@ export class GameBoardComponent {
   }
 
   onColumnClick(column: number) {
-    // La logica di inserimento del disco arriva quando il protocollo col backend è pronto.
-    console.log('drop in column', column);
+    const current = this.game();
+    if (!current) return;
+
+    this.gameService.dropDisc(current.id, column).subscribe({
+      next: (game) => this.game.set(game),
+      // Mossa non valida (partita non in corso, colonna piena): la ignoriamo
+      // silenziosamente, non serve un errore bloccante lato UI per un dev-tool.
+      error: (err) => console.warn(err.message),
+    });
   }
 }

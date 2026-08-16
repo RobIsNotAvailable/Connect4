@@ -10,6 +10,15 @@ function emptyBoard(): Board {
   return Array.from({ length: 6 }, () => Array<PlayerColor | null>(7).fill(null));
 }
 
+// Righe indicizzate dall'alto (0) verso il basso (5): la prima cella
+// libera partendo dal fondo è dove il disco si "ferma".
+function findLowestEmptyRow(board: Board, column: number): number | null {
+  for (let row = board.length - 1; row >= 0; row--) {
+    if (board[row][column] === null) return row;
+  }
+  return null;
+}
+
 function toSummary(game: Game): GameSummary {
   const { board: _board, currentTurnColor: _currentTurnColor, ...summary } = game;
   return summary;
@@ -100,5 +109,29 @@ export class GameMockService extends GameService {
     }
     game.status = 'playing';
     return of(game).pipe(delay(MOCK_LATENCY_MS), map(toSummary));
+  }
+
+  dropDisc(gameId: string, column: number): Observable<Game> {
+    const game = this.games.find((g) => g.id === gameId);
+    if (!game) {
+      return throwError(() => new Error(`Game ${gameId} not found`));
+    }
+    if (game.status !== 'playing') {
+      return throwError(() => new Error(`Game ${gameId} is not in progress`));
+    }
+
+    const row = findLowestEmptyRow(game.board, column);
+    if (row === null) {
+      return throwError(() => new Error(`Column ${column} is full`));
+    }
+
+    // Nessun backend collegato: alterniamo automaticamente rosso/blu ad
+    // ogni mossa (hotseat) per poter testare la board senza un avversario
+    // reale. Da sostituire quando il turno arriverà dal server.
+    game.board[row][column] = game.currentTurnColor;
+    game.currentTurnColor = game.currentTurnColor === 'red' ? 'blue' : 'red';
+    game.isYourTurn = !game.isYourTurn;
+
+    return of(game).pipe(delay(MOCK_LATENCY_MS));
   }
 }
