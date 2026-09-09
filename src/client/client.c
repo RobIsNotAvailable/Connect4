@@ -19,7 +19,7 @@ typedef struct
     pthread_mutex_t mutex;
 } PendingNotify;
 
-static PendingNotify g_pending_notify = {
+static PendingNotify pending_notify = {
     .valid = 0,
     .mutex = PTHREAD_MUTEX_INITIALIZER
 };
@@ -55,22 +55,22 @@ void join_game(int sock, int game_id)
 }
 
 // Sends CMD_JOIN_RESPONSE for whichever join request is currently
-// pending (see g_pending_notify). No-op with a message if none is pending.
+// pending (see pending_notify). No-op with a message if none is pending.
 void respond_to_join(int sock, int accepted)
 {
-    pthread_mutex_lock(&g_pending_notify.mutex);
+    pthread_mutex_lock(&pending_notify.mutex);
 
-    if (!g_pending_notify.valid)
+    if (!pending_notify.valid)
     {
-        pthread_mutex_unlock(&g_pending_notify.mutex);
+        pthread_mutex_unlock(&pending_notify.mutex);
         printf("[CLIENT] No pending join request to respond to\n");
         return;
     }
 
-    int game_id = g_pending_notify.game_id;
-    g_pending_notify.valid = 0;
+    int game_id = pending_notify.game_id;
+    pending_notify.valid = 0;
 
-    pthread_mutex_unlock(&g_pending_notify.mutex);
+    pthread_mutex_unlock(&pending_notify.mutex);
 
     Packet req;
     req.header.type = CMD_JOIN_RESPONSE;
@@ -127,11 +127,11 @@ void *receiver_thread(void *sock_ptr)
             }
             case CMD_JOIN_NOTIFY:
             {
-                pthread_mutex_lock(&g_pending_notify.mutex);
-                g_pending_notify.valid = 1;
-                g_pending_notify.game_id = pkt.payload.join_notify.game_id;
-                strncpy(g_pending_notify.joiner_username, pkt.payload.join_notify.joiner_username, USERNAME_LEN);
-                pthread_mutex_unlock(&g_pending_notify.mutex);
+                pthread_mutex_lock(&pending_notify.mutex);
+                pending_notify.valid = 1;
+                pending_notify.game_id = pkt.payload.join_notify.game_id;
+                strncpy(pending_notify.joiner_username, pkt.payload.join_notify.joiner_username, USERNAME_LEN);
+                pthread_mutex_unlock(&pending_notify.mutex);
 
                 printf("\n[CLIENT] %s wants to join your game (id=%d) - use menu option 4 to respond\n> ",
                        pkt.payload.join_notify.joiner_username, pkt.payload.join_notify.game_id);
