@@ -5,6 +5,9 @@
 #define BUFFER_SIZE 256
 #define USERNAME_LEN 32
 
+// Maximum length of one protocol line, '\n' included (see docs/protocol.md).
+#define MAX_LINE 1024
+
 typedef enum 
 {
     CMD_CREATE_GAME,     // no extra payload needed

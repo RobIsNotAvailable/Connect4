@@ -1,9 +1,11 @@
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include "net.h"
 #include "protocol.h"
 
 #define MAX_CLIENTS 64
@@ -29,6 +31,17 @@ typedef struct
 // direct indexing instead of scanning the array for a matching id or sock.
 // free_ids never needs more than MAX_CLIENTS slots: at most MAX_CLIENTS
 // ids can be "in use" at once, so at most MAX_CLIENTS can be free too.
+//
+// send_mutexes[id - 1] serializes writes to that client's socket: several
+// threads may send to the same client (its own handler replying, another
+// handler pushing a notification), and without a lock a partial send()
+// from one could be interleaved with another's line. They live in their
+// own array, not inside Client, because client_list_add overwrites the
+// whole Client slot and would clobber a mutex stored there.
+//
+// Lock order: a send mutex may be held while taking 'mutex', never the
+// reverse. That way a send() blocked on a slow client only ever holds its
+// own send mutex, and never stalls the whole registry.
 typedef struct
 {
     Client clients[MAX_CLIENTS]; // slot map: clients[id - 1] is the client with that id (id == 0 = free slot)
@@ -37,13 +50,16 @@ typedef struct
     int free_ids[MAX_CLIENTS];   // stack of freed ids waiting to be reused
     int free_count;              // how many entries in free_ids are currently valid
     pthread_mutex_t mutex;       // guards every field above
+    pthread_mutex_t send_mutexes[MAX_CLIENTS]; // send_mutexes[id - 1] guards writes to that client's socket
 } ClientList;
 
 static ClientList clients = {
     .count = 0,
     .next_id = 1,
     .free_count = 0,
-    .mutex = PTHREAD_MUTEX_INITIALIZER
+    .mutex = PTHREAD_MUTEX_INITIALIZER,
+    // GCC range designator: initializes every element of the array.
+    .send_mutexes = { [0 ... MAX_CLIENTS - 1] = PTHREAD_MUTEX_INITIALIZER }
 };
 
 // Registers a new client and assigns it an id/username. Returns the
@@ -74,19 +90,81 @@ Client client_list_add(int sock)
 // returns its id to the free-id stack for reuse. Callers already know the
 // id (it's handed back by client_list_add), so this indexes straight into
 // its slot instead of scanning for it.
+//
+// Takes the client's send mutex first, so it waits for any send already in
+// progress to this client; once it returns, client_send_line won't find the
+// client anymore, and the caller can safely close() the socket.
 void client_list_remove(int id)
 {
+    if (id < 1 || id > MAX_CLIENTS)
+    {
+        return;
+    }
+
+    pthread_mutex_lock(&clients.send_mutexes[id - 1]);
     pthread_mutex_lock(&clients.mutex);
 
-    if (id >= 1 && id <= MAX_CLIENTS && clients.clients[id - 1].id == id)
+    if (clients.clients[id - 1].id == id)
     {
         clients.clients[id - 1].id = 0; // 0 marks the slot free
         clients.free_ids[clients.free_count++] = id;
         clients.count--;
     }
 
-
     pthread_mutex_unlock(&clients.mutex);
+    pthread_mutex_unlock(&clients.send_mutexes[id - 1]);
+}
+
+// Sends one protocol line to the client connected on 'sock', holding that
+// client's send mutex so lines from different threads never interleave.
+// Returns 0 on success, -1 if no client is connected on 'sock' (e.g. it
+// disconnected in the meantime) or the send fails.
+//
+// Keyed by socket, not id, because games currently only remember sockets
+// (owner_sock, pending_joiner_sock...), so it has to scan like
+// client_list_find_username.
+int client_send_line(int sock, const char *fmt, ...)
+{
+    int slot = -1;
+    int id = 0;
+
+    pthread_mutex_lock(&clients.mutex);
+    for (int i = 0; i < clients.next_id - 1; i++)
+    {
+        if (clients.clients[i].id != 0 && clients.clients[i].sock == sock)
+        {
+            slot = i;
+            id = clients.clients[i].id;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&clients.mutex);
+
+    if (slot == -1)
+    {
+        return -1;
+    }
+
+    pthread_mutex_lock(&clients.send_mutexes[slot]);
+
+    // The registry lock was released above, so the client may have been
+    // removed before we got its send mutex: check it's still the same one.
+    pthread_mutex_lock(&clients.mutex);
+    int still_connected = clients.clients[slot].id == id && clients.clients[slot].sock == sock;
+    pthread_mutex_unlock(&clients.mutex);
+
+    int result = -1;
+    if (still_connected)
+    {
+        va_list args;
+        va_start(args, fmt);
+        result = vsend_line(sock, fmt, args);
+        va_end(args);
+    }
+
+    pthread_mutex_unlock(&clients.send_mutexes[slot]);
+
+    return result;
 }
 
 // Looks up the username of the client owning the given socket. Returns
