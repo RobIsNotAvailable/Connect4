@@ -43,4 +43,27 @@ int send_line(int sock, const char *fmt, ...) __attribute__((format(printf, 2, 3
 // (e.g. the server's locked client_send_line) forward their arguments.
 int vsend_line(int sock, const char *fmt, va_list args) __attribute__((format(printf, 2, 0)));
 
+// AGGIUNTA (migrazione al protocollo testuale): client.c e server.c devono
+// entrambi spezzare una riga ricevuta in token e validare gli argomenti
+// numerici allo stesso modo, quindi questi due helper vivono qui invece di
+// essere duplicati nei due file.
+
+// Maximum number of whitespace-separated tokens split_args() extracts from
+// one line, command included. Covers every fixed-arity message in
+// docs/protocol.md (the longest is "ERROR <comando> <codice>", 3 tokens);
+// GAME_LIST's variable-length tail is parsed separately by whoever needs it.
+#define MAX_ARGS 4
+
+// Splits 'line' in place (each separating space becomes '\0') into up to
+// 'max_args' tokens, argv[0] being the command name. Returns how many
+// tokens were found (0 for a blank line).
+int split_args(char *line, char *argv[], int max_args);
+
+// Parses 's' as a base-10 integer with nothing left over: unlike plain
+// strtol/atoi, rejects "", " " and "12abc" instead of silently accepting a
+// prefix. Returns 1 and fills 'out' on success, 0 otherwise. Used to turn
+// a BAD_ARGS case (non-numeric argument) into an actual protocol error
+// instead of silently treating garbage as 0.
+int parse_int(const char *s, int *out);
+
 #endif

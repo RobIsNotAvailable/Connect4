@@ -4,13 +4,14 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include "net.h"
 #include "protocol.h"
 
 // Tracks a join request the server notified us about (we are the game
 // owner) that hasn't been answered yet. Only one at a time: a second
-// CMD_JOIN_NOTIFY while one is already pending would just overwrite it,
+// JOIN_NOTIFY while one is already pending would just overwrite it,
 // but the server never sends one before the previous is resolved (see
-// game_registry_set_pending in server.c), so this is safe as-is.
+// game_registry_set_pending in game_registry.c), so this is safe as-is.
 typedef struct
 {
     int valid;
@@ -24,152 +25,33 @@ static PendingNotify pending_notify = {
     .mutex = PTHREAD_MUTEX_INITIALIZER
 };
 
-// Sends CMD_CREATE_GAME. The reply is printed by the receiver thread,
-// not here: only one thread may recv() on the socket (see receiver_thread).
-void create_game(int sock)
-{
-    Packet req;
-    req.header.type = CMD_CREATE_GAME;
-    req.header.payload_size = 0;
-    send(sock, &req, sizeof(Packet), 0);
-}
+// The LineReader is shared between main() (which reads the initial
+// WELCOME) and receiver_thread (which keeps reading after): bytes that
+// arrive "early" stay buffered inside it, so it has to be the same object
+// for the whole connection. File-scope, like pending_notify, rather than a
+// local in main(): the detached thread may still be running after main()
+// returns.
+static LineReader g_reader;
 
-// Sends CMD_LIST_GAMES. Reply printed by the receiver thread.
-void list_games(int sock)
-{
-    Packet req;
-    req.header.type = CMD_LIST_GAMES;
-    req.header.payload_size = 0;
-    send(sock, &req, sizeof(Packet), 0);
-}
-
-// Sends CMD_JOIN_GAME for the given game id. Reply printed by the
-// receiver thread once the owner answers.
-void join_game(int sock, int game_id)
-{
-    Packet req;
-    req.header.type = CMD_JOIN_GAME;
-    req.header.payload_size = sizeof(JoinRequest);
-    req.payload.join_request.game_id = game_id;
-    send(sock, &req, sizeof(Packet), 0);
-}
-
-// Sends CMD_JOIN_RESPONSE for whichever join request is currently
-// pending (see pending_notify). No-op with a message if none is pending.
-void respond_to_join(int sock, int accepted)
-{
-    pthread_mutex_lock(&pending_notify.mutex);
-
-    if (!pending_notify.valid)
-    {
-        pthread_mutex_unlock(&pending_notify.mutex);
-        printf("[CLIENT] No pending join request to respond to\n");
-        return;
-    }
-
-    int game_id = pending_notify.game_id;
-    pending_notify.valid = 0;
-
-    pthread_mutex_unlock(&pending_notify.mutex);
-
-    Packet req;
-    req.header.type = CMD_JOIN_RESPONSE;
-    req.header.payload_size = sizeof(JoinResponse);
-    req.payload.join_response.game_id = game_id;
-    req.payload.join_response.accepted = accepted;
-    send(sock, &req, sizeof(Packet), 0);
-}
-
-// Runs in its own thread for the whole lifetime of the connection: the
-// only place that calls recv() on the socket, since command replies are
-// no longer synchronous (a join request notifies a socket that isn't
-// the one who sent the command, so blocking send()+recv() pairs don't
-// work anymore for every command).
-void *receiver_thread(void *sock_ptr)
-{
-    int sock = *(int *)sock_ptr;
-    Packet pkt;
-    int status;
-
-    while ((status = recv(sock, &pkt, sizeof(Packet), 0)) > 0)
-    {
-        switch (pkt.header.type)
-        {
-            case CMD_GAME_CREATED:
-                if (pkt.payload.game_created.game_id == -1)
-                {
-                    printf("\n[CLIENT] Server could not create the game (registry full)\n> ");
-                }
-                else
-                {
-                    printf("\n[CLIENT] Game created, id=%d\n> ", pkt.payload.game_created.game_id);
-                }
-                fflush(stdout);
-                break;
-            case CMD_GAME_LIST:
-            {
-                GameList *list = &pkt.payload.game_list;
-                if (list->count == 0)
-                {
-                    printf("\n[CLIENT] No games waiting for players\n> ");
-                }
-                else
-                {
-                    printf("\n[CLIENT] Games waiting for players:\n");
-                    for (int i = 0; i < list->count; i++)
-                    {
-                        printf("  id=%d owner=%s\n", list->games[i].game_id, list->games[i].owner_username);
-                    }
-                    printf("> ");
-                }
-                fflush(stdout);
-                break;
-            }
-            case CMD_JOIN_NOTIFY:
-            {
-                pthread_mutex_lock(&pending_notify.mutex);
-                pending_notify.valid = 1;
-                pending_notify.game_id = pkt.payload.join_notify.game_id;
-                strncpy(pending_notify.joiner_username, pkt.payload.join_notify.joiner_username, USERNAME_LEN);
-                pthread_mutex_unlock(&pending_notify.mutex);
-
-                printf("\n[CLIENT] %s wants to join your game (id=%d) - use menu option 4 to respond\n> ",
-                       pkt.payload.join_notify.joiner_username, pkt.payload.join_notify.game_id);
-                fflush(stdout);
-                break;
-            }
-            case CMD_JOIN_RESULT:
-                if (pkt.payload.join_result.accepted)
-                {
-                    printf("\n[CLIENT] Join request for game %d accepted\n> ", pkt.payload.join_result.game_id);
-                }
-                else
-                {
-                    printf("\n[CLIENT] Join request for game %d refused\n> ", pkt.payload.join_result.game_id);
-                }
-                fflush(stdout);
-                break;
-            case CMD_ERROR:
-                printf("\n[CLIENT] Server returned an error for the last command\n> ");
-                fflush(stdout);
-                break;
-            default:
-                printf("\n[CLIENT] Unhandled reply type: %d\n> ", pkt.header.type);
-                fflush(stdout);
-                break;
-        }
-    }
-
-    if (status == 0)
-    {
-        printf("\n[CLIENT] Server closed the connection\n");
-    }
-    else
-    {
-        perror("\n[CLIENT] Error in receiving data from server\n");
-    }
-    exit(0); // the menu loop can't do anything useful once the socket is gone
-}
+// Forward declarations of every function defined below, in the order
+// main() reaches them: first the receiver thread it spawns (and
+// everything that thread calls, down to the individual message
+// handlers), then the menu commands main() calls directly. Keeping only
+// signatures here lets the definitions further down read top-down,
+// starting from main().
+static void *receiver_thread(void *sock_ptr);
+static void dispatch_reply(char *line);
+static void handle_game_list(char *line);
+static void handle_game_created(char *argv[]);
+static void handle_join_notify(char *argv[]);
+static void set_pending_notify(int game_id, const char *joiner_username);
+static void handle_join_result(char *argv[]);
+static void handle_error(char *argv[]);
+static void create_game(int sock);
+static void list_games(int sock);
+static void join_game(int sock, int game_id);
+static void respond_to_join(int sock, int accepted);
+static int take_pending_notify(int *out_game_id);
 
 int main()
 {
@@ -201,24 +83,26 @@ int main()
         return -1;
     }
 
-    Packet* pktptr = malloc(sizeof(Packet));
+    // The WELCOME is a text line like any other, read on the same
+    // LineReader that receiver_thread will use for the rest of the
+    // connection.
+    line_reader_init(&g_reader, sock);
+    char line[MAX_LINE];
+    char *argv[MAX_ARGS];
+    int argc;
 
-    // The server assigns an id/username right after accept(); this is the
-    // first message we expect to receive.
-    if (recv(sock, pktptr, sizeof(Packet), 0) > 0 && pktptr->header.type == CMD_WELCOME)
+    if (recv_line(&g_reader, line) == LINE_OK &&
+        (argc = split_args(line, argv, MAX_ARGS)) == 3 &&
+        strcmp(argv[0], "WELCOME") == 0)
     {
-        printf("[CLIENT] Connected as %s (id=%d)\n",
-               pktptr->payload.welcome.username, pktptr->payload.welcome.client_id);
+        printf("[CLIENT] Connected as %s (id=%s)\n", argv[2], argv[1]);
     }
     else
     {
         fprintf(stderr, "[CLIENT] Did not receive a valid welcome message from the server\n");
-        free(pktptr);
         close(sock);
         return -1;
     }
-
-    free(pktptr);
 
     // Start the receiver thread now: from this point on, every reply
     // (including the synchronous-looking ones for create/list) arrives
@@ -271,4 +155,200 @@ int main()
 
     close(sock);
     return 0;
+}
+
+// Runs in its own thread for the whole lifetime of the connection: the
+// only place that calls recv_line() on the socket, since command replies
+// are no longer synchronous (a join request notifies a socket that isn't
+// the one who sent the command, so blocking send()+recv() pairs don't
+// work anymore for every command).
+static void *receiver_thread(void *sock_ptr)
+{
+    (void)sock_ptr; // the real socket lives inside g_reader by now
+    char line[MAX_LINE];
+    int status;
+
+    while ((status = recv_line(&g_reader, line)) == LINE_OK)
+    {
+        dispatch_reply(line);
+    }
+
+    if (status == LINE_CLOSED)
+    {
+        printf("\n[CLIENT] Server closed the connection\n");
+    }
+    else if (status == LINE_TOO_LONG)
+    {
+        printf("\n[CLIENT] Server sent a line longer than %d bytes\n", MAX_LINE);
+    }
+    else
+    {
+        perror("\n[CLIENT] Error in receiving data from server\n");
+    }
+    exit(0); // the menu loop can't do anything useful once the socket is gone
+}
+
+// Reads the command name off 'line' and calls the matching handler.
+static void dispatch_reply(char *line)
+{
+    char cmd[32];
+    if (sscanf(line, "%31s", cmd) != 1)
+    {
+        return; // blank line
+    }
+
+    if (strcmp(cmd, "GAME_LIST") == 0)
+    {
+        handle_game_list(line);
+    }
+    else
+    {
+        char *argv[MAX_ARGS];
+        int argc = split_args(line, argv, MAX_ARGS);
+
+        if (strcmp(cmd, "GAME_CREATED") == 0 && argc == 2)
+        {
+            handle_game_created(argv);
+        }
+        else if (strcmp(cmd, "JOIN_NOTIFY") == 0 && argc == 3)
+        {
+            handle_join_notify(argv);
+        }
+        else if (strcmp(cmd, "JOIN_RESULT") == 0 && argc == 3)
+        {
+            handle_join_result(argv);
+        }
+        else if (strcmp(cmd, "ERROR") == 0 && argc == 3)
+        {
+            handle_error(argv);
+        }
+        else
+        {
+            printf("\n[CLIENT] Unhandled or malformed reply: %s\n> ", line);
+        }
+    }
+
+    fflush(stdout);
+}
+
+// GAME_LIST has a variable-length tail (up to 32 games): parsed here on
+// its own instead of through split_args()/MAX_ARGS, which would truncate
+// it. Takes the raw line, not pre-split argv.
+static void handle_game_list(char *line)
+{
+    char *saveptr;
+    strtok_r(line, " ", &saveptr); // consume "GAME_LIST"
+    char *count_tok = strtok_r(NULL, " ", &saveptr);
+    int count = (count_tok != NULL) ? atoi(count_tok) : 0;
+
+    if (count == 0)
+    {
+        printf("\n[CLIENT] No games waiting for players\n> ");
+        return;
+    }
+
+    printf("\n[CLIENT] Games waiting for players:\n");
+    for (int i = 0; i < count; i++)
+    {
+        char *id_tok = strtok_r(NULL, " ", &saveptr);
+        char *owner_tok = strtok_r(NULL, " ", &saveptr);
+        if (id_tok == NULL || owner_tok == NULL)
+        {
+            break; // malformed line: show what we got instead of crashing
+        }
+        printf("  id=%s owner=%s\n", id_tok, owner_tok);
+    }
+    printf("> ");
+}
+
+static void handle_game_created(char *argv[])
+{
+    printf("\n[CLIENT] Game created, id=%s\n> ", argv[1]);
+}
+
+static void handle_join_notify(char *argv[])
+{
+    set_pending_notify(atoi(argv[1]), argv[2]);
+    printf("\n[CLIENT] %s wants to join your game (id=%s) - use menu option 4 to respond\n> ",
+           argv[2], argv[1]);
+}
+
+// Records the join request we were just notified about.
+static void set_pending_notify(int game_id, const char *joiner_username)
+{
+    pthread_mutex_lock(&pending_notify.mutex);
+    pending_notify.valid = 1;
+    pending_notify.game_id = game_id;
+    strncpy(pending_notify.joiner_username, joiner_username, USERNAME_LEN);
+    pthread_mutex_unlock(&pending_notify.mutex);
+}
+
+static void handle_join_result(char *argv[])
+{
+    if (strcmp(argv[2], "1") == 0)
+    {
+        printf("\n[CLIENT] Join request for game %s accepted\n> ", argv[1]);
+    }
+    else
+    {
+        printf("\n[CLIENT] Join request for game %s refused\n> ", argv[1]);
+    }
+}
+
+static void handle_error(char *argv[])
+{
+    printf("\n[CLIENT] Error on %s: %s\n> ", argv[1], argv[2]);
+}
+
+// Sends CREATE_GAME. The reply is printed by the receiver thread,
+// not here: only one thread may recv() on the socket (see receiver_thread).
+static void create_game(int sock)
+{
+    send_line(sock, "CREATE_GAME");
+}
+
+// Sends LIST_GAMES. Reply printed by the receiver thread.
+static void list_games(int sock)
+{
+    send_line(sock, "LIST_GAMES");
+}
+
+// Sends JOIN_GAME for the given game id. Reply printed by the
+// receiver thread once the owner answers.
+static void join_game(int sock, int game_id)
+{
+    send_line(sock, "JOIN_GAME %d", game_id);
+}
+
+// Sends JOIN_RESPONSE for whichever join request is currently
+// pending (see pending_notify). No-op with a message if none is pending.
+static void respond_to_join(int sock, int accepted)
+{
+    int game_id;
+    if (!take_pending_notify(&game_id))
+    {
+        printf("[CLIENT] No pending join request to respond to\n");
+        return;
+    }
+
+    send_line(sock, "JOIN_RESPONSE %d %d", game_id, accepted);
+}
+
+// If a join request is currently pending, clears it and returns 1 with
+// 'out_game_id' filled in. Returns 0 (leaving 'out_game_id' untouched) if
+// there's none pending.
+static int take_pending_notify(int *out_game_id)
+{
+    pthread_mutex_lock(&pending_notify.mutex);
+
+    int had_one = pending_notify.valid;
+    if (had_one)
+    {
+        *out_game_id = pending_notify.game_id;
+        pending_notify.valid = 0;
+    }
+
+    pthread_mutex_unlock(&pending_notify.mutex);
+
+    return had_one;
 }
