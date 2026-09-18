@@ -184,6 +184,7 @@ static void handle_create_game(int client_sock, const Client *me)
     else
     {
         client_send_line(client_sock, "GAME_CREATED %d", g.id);
+        client_broadcast_except(client_sock, -1, "NEW_GAME %d %s", g.id, me->username);
     }
 }
 
@@ -263,6 +264,13 @@ static void handle_join_response(int client_sock, const Client *me, int argc, ch
         // joiner's socket regardless of accept/reject, so it's always the
         // right destination for the result.
         client_send_line(g.pending_joiner_sock, "JOIN_RESULT %d %d", game_id, accepted);
+        if (accepted)
+        {
+            // g.player2_sock is the joiner: resolve_join sets it before
+            // returning, on the accept path. Both players already know
+            // via JOIN_RESULT/JOIN_NOTIFY, so they're excluded here.
+            client_broadcast_except(g.owner_sock, g.player2_sock, "GAME_IN_PROGRESS %d", game_id);
+        }
         return;
     }
 

@@ -28,6 +28,13 @@ void client_list_remove(int id);
 // anymore (e.g. it disconnected) or the send fails.
 int client_send_line(int sock, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
+// Sends one protocol line to every currently connected client except up
+// to two sockets (pass -1 for either/both to exclude no one). Used for
+// the docs/protocol.md notifications, which never reach the game's
+// own owner/player2. Best-effort per recipient, like client_send_line: a
+// client that disconnects mid-broadcast is silently skipped.
+void client_broadcast_except(int except_sock1, int except_sock2, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+
 // Looks up the username of the client owning the given socket. Returns 1
 // and fills 'out' if found, 0 otherwise (e.g. the client disconnected
 // between the lookup that gave the caller this socket and this call).

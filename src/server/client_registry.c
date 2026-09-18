@@ -158,6 +158,39 @@ static int find_client_by_sock(int sock, int *out_id)
     return slot;
 }
 
+// Snapshots the sockets to notify under 'mutex', then sends to each one
+// outside the lock: client_send_line takes 'mutex' itself (briefly) to
+// re-check the client is still connected, so still holding it here while
+// calling client_send_line would deadlock.
+void client_broadcast_except(int except_sock1, int except_sock2, const char *fmt, ...)
+{
+    char line[MAX_LINE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(line, sizeof(line), fmt, args);
+    va_end(args);
+
+    int targets[MAX_CLIENTS];
+    int n = 0;
+    
+    pthread_mutex_lock(&clients.mutex);
+    
+    for (int i = 0; i < clients.next_id - 1; i++)
+    {
+        int sock = clients.clients[i].sock;
+        if (clients.clients[i].id != 0 && sock != except_sock1 && sock != except_sock2)
+        {
+            targets[n++] = sock;
+        }
+    }
+    pthread_mutex_unlock(&clients.mutex);
+
+    for (int i = 0; i < n; i++)
+    {
+        client_send_line(targets[i], "%s", line);
+    }
+}
+
 // Not reused via find_client_by_sock: this needs the scan and the
 // strncpy to happen under the same, continuously-held lock (otherwise the
 // slot could be freed and reassigned to a different client in between,
