@@ -28,6 +28,7 @@ static void send_game_state(const Game *g);
 static void handle_move(int client_sock, const Client *me, int argc, char *argv[]);
 static void send_game_over(const Game *g);
 static const char *move_error_code(MoveResult r);
+static void handle_disconnect(int client_sock);
 
 int main()
 {
@@ -135,9 +136,41 @@ static void *client_handler(void *sock_id)
     }
 
     client_list_remove(me.id);
-    game_registry_remove_by_owner(client_sock);
+    handle_disconnect(client_sock);
     close(client_sock);
     pthread_exit(NULL);
+}
+
+// Sends whatever notifications docs/protocol.md §8 requires because
+// 'client_sock' just disconnected, for every game it was involved in
+// (as owner, pending joiner, or player2).
+static void handle_disconnect(int client_sock)
+{
+    DisconnectEvent events[MAX_GAMES];
+    int n = game_registry_handle_disconnect(client_sock, events);
+
+    for (int i = 0; i < n; i++)
+    {
+        int game_id = events[i].game_id;
+        int notify_sock = events[i].notify_sock;
+
+        switch (events[i].type)
+        {
+            case DISCONNECT_JOIN_CANCELLED:
+                client_send_line(notify_sock, "JOIN_CANCELLED %d", game_id);
+                break;
+            case DISCONNECT_GAME_CLOSED:
+                client_broadcast_except(client_sock, -1, "GAME_CLOSED %d", game_id);
+                break;
+            case DISCONNECT_OPPONENT_LEFT_PLAYING:
+                client_send_line(notify_sock, "OPPONENT_LEFT %d", game_id);
+                client_broadcast_except(client_sock, notify_sock, "GAME_CLOSED %d", game_id);
+                break;
+            case DISCONNECT_OPPONENT_LEFT_FINISHED:
+                client_send_line(notify_sock, "OPPONENT_LEFT %d", game_id);
+                break;
+        }
+    }
 }
 
 // Splits one received line into command + arguments and calls the

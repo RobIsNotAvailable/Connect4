@@ -2,12 +2,10 @@
 #include <string.h>
 #include "game_registry.h"
 
-#define MAX_GAMES 256
-
 // The public functions below are already declared in game_registry.h.
 // These are the private helpers defined in this file, forward-declared
 // here so each can be defined after its first caller: free_slot after
-// game_registry_remove_by_owner, game_id_is_valid and is_playing after
+// game_registry_handle_disconnect, game_id_is_valid and is_playing after
 // game_registry_set_pending.
 static void free_slot(int index);
 static int game_id_is_valid(int game_id);
@@ -67,24 +65,69 @@ Game game_create(int owner_sock, const char *owner_username)
     return new_game;
 }
 
-// A single owner can hold several games (create doesn't cap that - see its
-// comment), so this still has to check each one; unlike a single-game
-// lookup by id it isn't a single-slot operation. It's bounded by the
-// highest id ever handed out rather than MAX_GAMES, and only runs once per
+// A single client can be involved (as owner, pending joiner, or player2)
+// in several games at once - own games aren't capped (see game_create's
+// comment), and nothing stops holding more than one pending join request
+// either - so this has to check every occupied slot; unlike a single-game
+// lookup by id it isn't a single-slot operation. Bounded by the highest
+// id ever handed out rather than MAX_GAMES, and only runs once per
 // disconnect (not per request), so the scan is cheap in practice.
-void game_registry_remove_by_owner(int owner_sock)
+int game_registry_handle_disconnect(int sock, DisconnectEvent *events)
 {
+    int n = 0;
+
     pthread_mutex_lock(&registry.mutex);
 
     for (int i = 0; i < registry.next_id - 1; i++)
     {
-        if (registry.games[i].state != GAME_EMPTY && registry.games[i].owner_sock == owner_sock)
+        if (registry.games[i].state == GAME_EMPTY)
         {
+            continue;
+        }
+
+        if (registry.games[i].pending_joiner_sock == sock)
+        {
+            // Docs/protocol.md §8: the request is cancelled, the game
+            // itself stays WAITING and can receive new requests.
+            events[n].type = DISCONNECT_JOIN_CANCELLED;
+            events[n].game_id = registry.games[i].id;
+            events[n].notify_sock = registry.games[i].owner_sock;
+            n++;
+            registry.games[i].pending_joiner_sock = -1;
+        }
+        else if (registry.games[i].owner_sock == sock)
+        {
+            events[n].game_id = registry.games[i].id;
+            if (registry.games[i].state == GAME_WAITING)
+            {
+                events[n].type = DISCONNECT_GAME_CLOSED;
+                events[n].notify_sock = -1;
+            }
+            else
+            {
+                events[n].type = (registry.games[i].state == GAME_PLAYING)
+                    ? DISCONNECT_OPPONENT_LEFT_PLAYING
+                    : DISCONNECT_OPPONENT_LEFT_FINISHED;
+                events[n].notify_sock = registry.games[i].player2_sock;
+            }
+            n++;
+            free_slot(i);
+        }
+        else if (registry.games[i].player2_sock == sock)
+        {
+            events[n].game_id = registry.games[i].id;
+            events[n].type = (registry.games[i].state == GAME_PLAYING)
+                ? DISCONNECT_OPPONENT_LEFT_PLAYING
+                : DISCONNECT_OPPONENT_LEFT_FINISHED;
+            events[n].notify_sock = registry.games[i].owner_sock;
+            n++;
             free_slot(i);
         }
     }
 
     pthread_mutex_unlock(&registry.mutex);
+
+    return n;
 }
 
 // Frees the slot at 'index' (0-based): returns its id to the free-id

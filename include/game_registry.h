@@ -4,6 +4,12 @@
 #include "board.h"
 #include "protocol.h"
 
+// Registry capacity: how many games can exist at once. Exposed here (not
+// just in game_registry.c) so a caller can size a buffer to match, e.g.
+// the DisconnectEvent array below - one disconnecting client can affect
+// at most one game per occupied slot.
+#define MAX_GAMES 256
+
 // Bookkeeping for a single game: identity + owner + current state.
 // owner_sock is kept (not just the username) so the join notification can
 // be sent directly to the owner's socket without another lookup in the
@@ -55,15 +61,38 @@ typedef enum
     MOVE_ERR_COLUMN_FULL
 } MoveResult;
 
+// What happened to one game because a client disconnected
+// (docs/protocol.md §8), and which notification(s) the caller needs to
+// send because of it. The disconnecting socket itself is always one of
+// the sockets a GAME_CLOSED broadcast excludes - the caller already
+// knows it, so it isn't repeated here.
+typedef enum
+{
+    DISCONNECT_JOIN_CANCELLED,        // was a pending joiner: notify_sock (the owner) gets JOIN_CANCELLED
+    DISCONNECT_GAME_CLOSED,           // was owner of a WAITING game: broadcast GAME_CLOSED, no direct recipient
+    DISCONNECT_OPPONENT_LEFT_PLAYING, // was owner/player2 of a PLAYING game: notify_sock gets OPPONENT_LEFT, then broadcast GAME_CLOSED
+    DISCONNECT_OPPONENT_LEFT_FINISHED // was owner/player2 of a FINISHED game: notify_sock gets OPPONENT_LEFT only
+} DisconnectEventType;
+
+typedef struct
+{
+    DisconnectEventType type;
+    int game_id;
+    int notify_sock; // direct-message recipient for this event, or -1 if none
+} DisconnectEvent;
+
 // Creates a new game owned by (owner_sock, owner_username), state WAITING.
 // Returns the created Game, or a Game with id == -1 if the registry is
 // full. No check on whether owner already owns another game: not required
 // yet, to be decided/added when join/accept semantics are defined.
 Game game_create(int owner_sock, const char *owner_username);
 
-// Removes every game owned by owner_sock from the registry (e.g. when the
-// owner disconnects), returning their ids to the free-id stack for reuse.
-void game_registry_remove_by_owner(int owner_sock);
+// Removes or updates every game where 'sock' is the owner, the pending
+// joiner, or player2, because that client just disconnected. Fills
+// 'events' (caller-allocated, at least MAX_GAMES entries) with what
+// happened to each affected game and what to notify about it. Returns
+// how many entries were filled.
+int game_registry_handle_disconnect(int sock, DisconnectEvent *events);
 
 // Fills 'out' with up to MAX_GAMES_IN_LIST currently WAITING games.
 // Returns how many were copied.
