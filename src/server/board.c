@@ -55,7 +55,7 @@ int board_check_win(const Board *board, int row, int col)
     int diag_down = 1 + count_direction(board, row, col, cellPlayer, 1, 1)
                       + count_direction(board, row, col, cellPlayer, -1, -1);
 
-    if (diag_down >= 4)return 1;
+    if (diag_down >= 4) return 1;
     
 
     int diag_up = 1 + count_direction(board, row, col, cellPlayer, 1, -1)
@@ -87,3 +87,33 @@ static int count_direction(const Board *board, int row, int col, CellPlayer cell
 
     return count;
 }
+
+void board_to_string(const Board *board, char *out)
+{
+    int i = 0;
+    for (int row = 0; row < BOARD_ROWS; row++)
+    {
+        for (int col = 0; col < BOARD_COLS; col++)
+        {
+            CellPlayer cellPlayer = board->cells[row][col];
+            out[i++] = (cellPlayer == PLAYER_NONE) ? '.' : (char)('0' + cellPlayer);
+        }
+    }
+    out[i] = '\0';
+}
+
+int board_is_full(const Board *board)
+{
+    for (int row = 0; row < BOARD_ROWS; row++)
+    {
+        for (int col = 0; col < BOARD_COLS; col++)
+        {
+            if (board->cells[row][col] == PLAYER_NONE)
+            {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+

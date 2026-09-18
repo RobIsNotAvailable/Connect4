@@ -7,10 +7,11 @@
 // The public functions below are already declared in game_registry.h.
 // These are the private helpers defined in this file, forward-declared
 // here so each can be defined after its first caller: free_slot after
-// game_registry_remove_by_owner, game_id_is_valid after
+// game_registry_remove_by_owner, game_id_is_valid and is_playing after
 // game_registry_set_pending.
 static void free_slot(int index);
 static int game_id_is_valid(int game_id);
+static int is_playing(int sock);
 
 // Thread-safe registry of games, mirroring ClientList (see
 // client_registry.c): a slot map indexed directly by id (games[id - 1] IS
@@ -41,9 +42,12 @@ Game game_create(int owner_sock, const char *owner_username)
         .owner_sock = owner_sock,
         .state = GAME_WAITING,
         .pending_joiner_sock = -1,
-        .player2_sock = -1
+        .player2_sock = -1,
+        .turn = 0,
+        .winner = 0
     };
     strncpy(new_game.owner_username, owner_username, USERNAME_LEN);
+    board_init(&new_game.board);
 
     pthread_mutex_lock(&registry.mutex);
 
@@ -147,6 +151,10 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
         {
             result = JOIN_ERR_ALREADY_PENDING;
         }
+        else if (is_playing(joiner_sock))
+        {
+            result = JOIN_ERR_ALREADY_PLAYING;
+        }
         else
         {
             registry.games[i].pending_joiner_sock = joiner_sock;
@@ -172,6 +180,23 @@ static int game_id_is_valid(int game_id)
     return game_id >= 1 && game_id <= MAX_GAMES && registry.games[game_id - 1].state != GAME_EMPTY;
 }
 
+// Returns 1 if 'sock' is currently owner or player2 of any PLAYING game
+// (docs/protocol.md §5.1: a client plays at most one game at a time).
+// Caller must hold registry.mutex. Bounded by the highest id ever
+// handed out, like the other full-registry scans in this file.
+static int is_playing(int sock)
+{
+    for (int i = 0; i < registry.next_id - 1; i++)
+    {
+        if (registry.games[i].state == GAME_PLAYING &&
+            (registry.games[i].owner_sock == sock || registry.games[i].player2_sock == sock))
+        {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game)
 {
     ResolveResult result = RESOLVE_ERR_NOT_FOUND;
@@ -191,12 +216,17 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         {
             result = RESOLVE_ERR_NO_PENDING;
         }
+        else if (accepted && is_playing(owner_sock))
+        {
+            result = RESOLVE_ERR_ALREADY_PLAYING;
+        }
         else
         {
             if (accepted)
             {
                 registry.games[i].state = GAME_PLAYING;
                 registry.games[i].player2_sock = joiner_sock;
+                registry.games[i].turn = 1; // player 1 (the owner) moves first
             }
             registry.games[i].pending_joiner_sock = -1;
             result = RESOLVE_OK;
@@ -209,6 +239,81 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
             // still needs to know who to notify with JOIN_RESULT.
             out_game->pending_joiner_sock = joiner_sock;
         }
+    }
+
+    pthread_mutex_unlock(&registry.mutex);
+
+    return result;
+}
+
+MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Game *out_game)
+{
+    MoveResult result = MOVE_ERR_NOT_FOUND;
+
+    pthread_mutex_lock(&registry.mutex);
+
+    if (game_id_is_valid(game_id))
+    {
+        int i = game_id - 1;
+        int player = 0;
+
+        if (registry.games[i].owner_sock == player_sock)
+        {
+            player = 1;
+        }
+        else if (registry.games[i].player2_sock == player_sock)
+        {
+            player = 2;
+        }
+
+        if (player == 0)
+        {
+            result = MOVE_ERR_NOT_PLAYER;
+        }
+        else if (registry.games[i].state != GAME_PLAYING)
+        {
+            result = MOVE_ERR_NOT_PLAYING;
+        }
+        else if (registry.games[i].turn != player)
+        {
+            result = MOVE_ERR_NOT_YOUR_TURN;
+        }
+        else
+        {
+            int row;
+            CellPlayer disc = (player == 1) ? PLAYER_1 : PLAYER_2;
+            DropResult dr = board_drop_disc(&registry.games[i].board, column, disc, &row);
+
+            if (dr == DROP_INVALID_COLUMN)
+            {
+                result = MOVE_ERR_INVALID_COLUMN;
+            }
+            else if (dr == DROP_COLUMN_FULL)
+            {
+                result = MOVE_ERR_COLUMN_FULL;
+            }
+            else if (board_check_win(&registry.games[i].board, row, column))
+            {
+                registry.games[i].state = GAME_FINISHED;
+                registry.games[i].turn = 0;
+                registry.games[i].winner = player;
+                result = MOVE_OK;
+            }
+            else if (board_is_full(&registry.games[i].board))
+            {
+                registry.games[i].state = GAME_FINISHED;
+                registry.games[i].turn = 0;
+                registry.games[i].winner = 0; // draw
+                result = MOVE_OK;
+            }
+            else
+            {
+                registry.games[i].turn = (player == 1) ? 2 : 1;
+                result = MOVE_OK;
+            }
+        }
+
+        *out_game = registry.games[i];
     }
 
     pthread_mutex_unlock(&registry.mutex);

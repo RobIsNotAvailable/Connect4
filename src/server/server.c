@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include "board.h"
 #include "client_registry.h"
 #include "game_registry.h"
 #include "net.h"
@@ -22,6 +23,11 @@ static void handle_join_game(int client_sock, const Client *me, int argc, char *
 static const char *join_set_error_code(JoinSetResult r);
 static void handle_join_response(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *resolve_error_code(ResolveResult r);
+static void send_game_start(const Game *g);
+static void send_game_state(const Game *g);
+static void handle_move(int client_sock, const Client *me, int argc, char *argv[]);
+static void send_game_over(const Game *g);
+static const char *move_error_code(MoveResult r);
 
 int main()
 {
@@ -166,6 +172,10 @@ static void dispatch_command(int client_sock, const Client *me, char *line)
     {
         handle_join_response(client_sock, me, argc, argv);
     }
+    else if (strcmp(cmd, "MOVE") == 0)
+    {
+        handle_move(client_sock, me, argc, argv);
+    }
     else
     {
         printf("[SERVER] [%s] Unknown command: %s\n", me->username, cmd);
@@ -242,6 +252,7 @@ static const char *join_set_error_code(JoinSetResult r)
         case JOIN_ERR_NOT_WAITING:     return "NOT_WAITING";
         case JOIN_ERR_SELF_JOIN:       return "SELF_JOIN";
         case JOIN_ERR_ALREADY_PENDING: return "ALREADY_PENDING";
+        case JOIN_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
         default:                       return "NOT_FOUND"; // JOIN_OK never reaches here
     }
 }
@@ -270,6 +281,7 @@ static void handle_join_response(int client_sock, const Client *me, int argc, ch
             // returning, on the accept path. Both players already know
             // via JOIN_RESULT/JOIN_NOTIFY, so they're excluded here.
             client_broadcast_except(g.owner_sock, g.player2_sock, "GAME_IN_PROGRESS %d", game_id);
+            send_game_start(&g);
         }
         return;
     }
@@ -288,6 +300,99 @@ static const char *resolve_error_code(ResolveResult r)
         case RESOLVE_ERR_NOT_FOUND:  return "NOT_FOUND";
         case RESOLVE_ERR_NOT_OWNER:  return "NOT_OWNER";
         case RESOLVE_ERR_NO_PENDING: return "NO_PENDING";
+        case RESOLVE_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
         default:                     return "NOT_FOUND"; // RESOLVE_OK never reaches here
+    }
+}
+
+// Sends GAME_START (telling each player their own number and the
+// opponent's username) followed by the initial GAME_STATE, to both
+// players of 'g'. Called whenever a game starts: today only from an
+// accepted join, later also from an accepted rematch (docs/protocol.md
+// §7 - same two messages, same trigger shape).
+static void send_game_start(const Game *g)
+{
+    char player2_username[USERNAME_LEN] = {0};
+    client_list_find_username(g->player2_sock, player2_username);
+
+    client_send_line(g->owner_sock, "GAME_START %d 1 %s", g->id, player2_username);
+    client_send_line(g->player2_sock, "GAME_START %d 2 %s", g->id, g->owner_username);
+
+    send_game_state(g);
+}
+
+// Sends GAME_STATE (the board and whose turn it is) to both players of
+// 'g'. Used right after a game starts and after every valid move.
+static void send_game_state(const Game *g)
+{
+    char board_str[BOARD_ROWS * BOARD_COLS + 1];
+    board_to_string(&g->board, board_str);
+    client_send_line(g->owner_sock, "GAME_STATE %d %d %s", g->id, g->turn, board_str);
+    client_send_line(g->player2_sock, "GAME_STATE %d %d %s", g->id, g->turn, board_str);
+}
+
+static void handle_move(int client_sock, const Client *me, int argc, char *argv[])
+{
+    int game_id, column;
+    if (argc != 3 || !parse_int(argv[1], &game_id) || !parse_int(argv[2], &column))
+    {
+        client_send_line(client_sock, "ERROR MOVE BAD_ARGS");
+        return;
+    }
+
+    Game g;
+    MoveResult mr = game_registry_apply_move(game_id, client_sock, column, &g);
+
+    if (mr == MOVE_OK)
+    {
+        send_game_state(&g);
+        if (g.state == GAME_FINISHED)
+        {
+            send_game_over(&g);
+            // Other clients only ever saw this game as GAME_IN_PROGRESS
+            // (docs/protocol.md §6); now that it's really over, tell
+            // them to drop it from whatever list they're keeping.
+            client_broadcast_except(g.owner_sock, g.player2_sock, "GAME_CLOSED %d", g.id);
+        }
+        return;
+    }
+
+    const char *code = move_error_code(mr);
+    printf("[SERVER] [%s] Move on game %d rejected: %s\n", me->username, game_id, code);
+    client_send_line(client_sock, "ERROR MOVE %s", code);
+}
+
+// Sends GAME_OVER to both players of 'g', personalized per docs/protocol.md
+// §5: WIN to the winner, LOSE to the loser, or DRAW to both. Only valid
+// once g->state is GAME_FINISHED (i.e. right after send_game_state, from
+// handle_move above).
+static void send_game_over(const Game *g)
+{
+    if (g->winner == 0)
+    {
+        client_send_line(g->owner_sock, "GAME_OVER %d DRAW", g->id);
+        client_send_line(g->player2_sock, "GAME_OVER %d DRAW", g->id);
+        return;
+    }
+
+    int winner_sock = (g->winner == 1) ? g->owner_sock : g->player2_sock;
+    int loser_sock = (g->winner == 1) ? g->player2_sock : g->owner_sock;
+    client_send_line(winner_sock, "GAME_OVER %d WIN", g->id);
+    client_send_line(loser_sock, "GAME_OVER %d LOSE", g->id);
+}
+
+// Translates MoveResult (internal to game_registry.c) into the ERROR
+// codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+static const char *move_error_code(MoveResult r)
+{
+    switch (r)
+    {
+        case MOVE_ERR_NOT_FOUND:      return "NOT_FOUND";
+        case MOVE_ERR_NOT_PLAYER:     return "NOT_PLAYER";
+        case MOVE_ERR_NOT_PLAYING:    return "NOT_PLAYING";
+        case MOVE_ERR_NOT_YOUR_TURN:  return "NOT_YOUR_TURN";
+        case MOVE_ERR_INVALID_COLUMN: return "INVALID_COLUMN";
+        case MOVE_ERR_COLUMN_FULL:    return "COLUMN_FULL";
+        default:                      return "NOT_FOUND"; // MOVE_OK never reaches here
     }
 }

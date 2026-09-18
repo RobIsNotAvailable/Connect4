@@ -55,4 +55,17 @@ DropResult board_drop_disc(Board *board, int column, CellPlayer player, int *out
 // board_drop_disc's own out_row, together with the column just played.
 int board_check_win(const Board *board, int row, int col);
 
+// True if every cell is occupied. Meant to be checked only after
+// board_check_win already said no - a full board with a winning last
+// move is a win, not a draw.
+int board_is_full(const Board *board);
+
+// Writes the board as the 42-character token of docs/protocol.md §5.2
+// into 'out' (top row first, each row left to right) - '.' for
+// PLAYER_NONE, otherwise the digit '1'/'2' matching the cell's own
+// value (PLAYER_1 == 1, PLAYER_2 == 2 - see the enum above). 'out' must
+// be at least BOARD_ROWS * BOARD_COLS + 1 bytes; the result is
+// '\0'-terminated.
+void board_to_string(const Board *board, char *out);
+
 #endif

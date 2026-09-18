@@ -1,6 +1,7 @@
 #ifndef GAME_REGISTRY_H
 #define GAME_REGISTRY_H
 
+#include "board.h"
 #include "protocol.h"
 
 // Bookkeeping for a single game: identity + owner + current state.
@@ -15,6 +16,9 @@ typedef struct
     RoomState state;
     int pending_joiner_sock; // -1 if no join request is currently pending
     int player2_sock;        // -1 until the game moves to PLAYING
+    Board board;
+    int turn;   // 1 or 2: who moves next. Unused (left at 0) while WAITING
+    int winner; // valid only once state == GAME_FINISHED: 1, 2, or 0 for a draw
 } Game;
 
 // Outcomes of game_registry_set_pending(), used by the caller to pick
@@ -25,7 +29,8 @@ typedef enum
     JOIN_ERR_NOT_FOUND,
     JOIN_ERR_NOT_WAITING,
     JOIN_ERR_SELF_JOIN,
-    JOIN_ERR_ALREADY_PENDING
+    JOIN_ERR_ALREADY_PENDING,
+    JOIN_ERR_ALREADY_PLAYING
 } JoinSetResult;
 
 // Outcomes of game_registry_resolve_join().
@@ -34,8 +39,21 @@ typedef enum
     RESOLVE_OK,
     RESOLVE_ERR_NOT_FOUND,
     RESOLVE_ERR_NOT_OWNER,
-    RESOLVE_ERR_NO_PENDING
+    RESOLVE_ERR_NO_PENDING,
+    RESOLVE_ERR_ALREADY_PLAYING
 } ResolveResult;
+
+// Outcomes of game_registry_apply_move().
+typedef enum
+{
+    MOVE_OK,
+    MOVE_ERR_NOT_FOUND,
+    MOVE_ERR_NOT_PLAYER,
+    MOVE_ERR_NOT_PLAYING,
+    MOVE_ERR_NOT_YOUR_TURN,
+    MOVE_ERR_INVALID_COLUMN,
+    MOVE_ERR_COLUMN_FULL
+} MoveResult;
 
 // Creates a new game owned by (owner_sock, owner_username), state WAITING.
 // Returns the created Game, or a Game with id == -1 if the registry is
@@ -63,5 +81,13 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
 // to the joiner that was just resolved (accepted or not), so the caller
 // knows who to notify with JOIN_RESULT.
 ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game);
+
+// Validates and applies one MOVE (docs/protocol.md §5): checks the game
+// exists, 'player_sock' is one of its two players, the game is
+// currently PLAYING, and it's that player's turn - then drops the disc
+// into 'column' and flips whose turn it is. 'out_game' is filled with
+// the game's state after the call (needed by the caller to build
+// GAME_STATE).
+MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Game *out_game);
 
 #endif
