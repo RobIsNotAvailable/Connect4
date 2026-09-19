@@ -137,6 +137,11 @@ LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event);
 // Returns how many were copied.
 int game_registry_list_waiting(GameInfo *out);
 
+// Fills 'out' (caller-allocated, at least MAX_GAMES_PER_OWNER entries) with
+// every game owned by 'owner_sock', whatever its state. Returns how many
+// were copied.
+int game_registry_list_owned(int owner_sock, GameInfo *out);
+
 // Atomically validates a join request and, if valid, marks the game as
 // having a pending joiner. 'out_game' is filled with the game's state
 // after the call (needed by the caller to know the owner_sock to notify).

@@ -203,6 +203,42 @@ GAME_LIST 0
 GAME_LIST 2 3 Sfida_1 Player1 7 Rivincita! Player4
 ```
 
+### `LIST_MY_GAMES` (client → server)
+
+```
+LIST_MY_GAMES
+```
+
+Chiede l'elenco delle partite di cui il mittente è il creatore (*owner*), in
+qualunque stato si trovino. Serve al creatore per ritrovare le proprie stanze
+senza doverle cercare in `GAME_LIST`, che mostra solo quelle in attesa.
+
+Risposta: `MY_GAME_LIST`.
+
+### `MY_GAME_LIST` (server → client)
+
+```
+MY_GAME_LIST <count> [<game_id> <name> <state>]...
+```
+
+Dopo `<count>` seguono esattamente `<count>` terne id/nome/stato. `<state>` è
+uno tra:
+
+- `WAITING`: la partita aspetta un secondo giocatore;
+- `PLAYING`: si sta giocando;
+- `FINISHED`: la partita è finita e la stanza esiste ancora.
+
+Sono elencate solo le partite di cui il mittente è **owner**, non quelle in cui
+gioca da secondo giocatore. Un utente ne ha al massimo 3 (`TOO_MANY_GAMES`,
+§3), quindi `<count>` va da 0 a 3 e la riga non viene mai troncata.
+
+Esempi:
+
+```
+MY_GAME_LIST 0
+MY_GAME_LIST 2 3 Sfida_1 PLAYING 7 Rivincita! WAITING
+```
+
 ## 4. Accesso a una partita
 
 L'accesso è una stretta di mano in quattro messaggi tra il giocatore che vuole

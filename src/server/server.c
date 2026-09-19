@@ -25,6 +25,8 @@ static const char *create_error_code(CreateResult r);
 static void handle_leave_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *leave_error_code(LeaveResult r);
 static void handle_list_games(int client_sock);
+static void handle_list_my_games(int client_sock);
+static const char *room_state_name(RoomState s);
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *join_set_error_code(JoinSetResult r);
 static void handle_join_response(int client_sock, const Client *me, int argc, char *argv[]);
@@ -232,6 +234,10 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     {
         handle_list_games(client_sock);
     }
+    else if (strcmp(cmd, "LIST_MY_GAMES") == 0)
+    {
+        handle_list_my_games(client_sock);
+    }
     else if (strcmp(cmd, "JOIN_GAME") == 0)
     {
         handle_join_game(client_sock, me, argc, argv);
@@ -387,6 +393,40 @@ static void handle_list_games(int client_sock)
     entries[len] = '\0'; // drops the partial entry snprintf may have written past 'len'
 
     client_send_line(client_sock, "GAME_LIST %d%s", listed, entries);
+}
+
+// LIST_MY_GAMES: the games the sender owns, in any state (docs/protocol.md
+// §3). Unlike handle_list_games there is no truncation to handle: a client
+// owns at most MAX_GAMES_PER_OWNER games, and an entry is at most a few
+// dozen characters, so the reply always fits in MAX_LINE.
+static void handle_list_my_games(int client_sock)
+{
+    GameInfo games[MAX_GAMES_PER_OWNER];
+    int count = game_registry_list_owned(client_sock, games);
+
+    char entries[MAX_GAMES_PER_OWNER * 48];
+    size_t len = 0;
+    entries[0] = '\0';
+
+    for (int i = 0; i < count; i++)
+    {
+        len += snprintf(entries + len, sizeof(entries) - len, " %d %s %s",
+                        games[i].game_id, games[i].name, room_state_name(games[i].state));
+    }
+
+    client_send_line(client_sock, "MY_GAME_LIST %d%s", count, entries);
+}
+
+// The state's name as it appears on the wire (docs/protocol.md §3).
+static const char *room_state_name(RoomState s)
+{
+    switch (s)
+    {
+        case GAME_WAITING:  return "WAITING";
+        case GAME_PLAYING:  return "PLAYING";
+        case GAME_FINISHED: return "FINISHED";
+        default:            return "WAITING"; // GAME_EMPTY is never listed
+    }
 }
 
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[])

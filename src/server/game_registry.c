@@ -246,6 +246,34 @@ int game_registry_list_waiting(GameInfo *out)
     return n;
 }
 
+// Same bounded scan as game_registry_list_waiting, filtered by owner
+// instead of state. An owner has at most MAX_GAMES_PER_OWNER games (game_create
+// refuses more, and an ownership transfer closes the room rather than
+// exceed it), so 'out' can never overflow; the loop condition enforces it
+// anyway.
+int game_registry_list_owned(int owner_sock, GameInfo *out)
+{
+    int n = 0;
+
+    pthread_mutex_lock(&registry.mutex);
+
+    for (int i = 0; i < registry.next_id - 1 && n < MAX_GAMES_PER_OWNER; i++)
+    {
+        if (registry.games[i].state != GAME_EMPTY && registry.games[i].owner_sock == owner_sock)
+        {
+            out[n].game_id = registry.games[i].id;
+            strncpy(out[n].name, registry.games[i].name, ROOM_NAME_LEN);
+            out[n].owner_sock = registry.games[i].owner_sock;
+            out[n].state = registry.games[i].state;
+            n++;
+        }
+    }
+
+    pthread_mutex_unlock(&registry.mutex);
+
+    return n;
+}
+
 JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_game)
 {
     JoinSetResult result = JOIN_ERR_NOT_FOUND;
