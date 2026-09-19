@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -189,10 +190,15 @@ int parse_int(const char *s, int *out)
     }
 
     char *end;
+    errno = 0;
     long v = strtol(s, &end, 10);
     if (*end != '\0')
     {
         return 0; // trailing garbage, e.g. "12abc"
+    }
+    if (errno == ERANGE || v < INT_MIN || v > INT_MAX)
+    {
+        return 0; // doesn't fit in an int: casting it would wrap around (2^32 -> 0)
     }
 
     *out = (int)v;

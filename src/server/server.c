@@ -53,6 +53,24 @@ int main()
         return -1;
     }
 
+    // Problem: when the server stops while clients are still connected, it is
+    // the side that closes those connections first, so the kernel keeps each
+    // of them in TIME_WAIT for about a minute (to make sure the last ACK
+    // arrived and that stray packets of the old connection are not taken for
+    // data of a new one). Those leftovers still hold the server's port, so
+    // without the option below a restart right away (a crash, `docker compose
+    // restart`) fails in bind() with "Address already in use" until they expire.
+    // SO_REUSEADDR lets bind() succeed despite connections in TIME_WAIT. It
+    // does not allow two servers on the same port: while another one is in
+    // LISTEN state, bind() still fails. It must be set before bind().
+    int reuse = 1;
+    if (setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
+    {
+        perror("Setsockopt error");
+        close(server_sock);
+        return -1;
+    }
+
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(PORT);

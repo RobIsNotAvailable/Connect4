@@ -138,9 +138,9 @@ class Server:
 
     def __exit__(self, *exc):
         # The clients hang up first. Whoever closes a connection first is left
-        # holding it in TIME_WAIT: if that were the server, its port would
-        # stay busy for about a minute and the next test could not start
-        # (the server does not set SO_REUSEADDR).
+        # holding it in TIME_WAIT, so the server is spared it. The server sets
+        # SO_REUSEADDR and would restart anyway; this only keeps the tests
+        # independent of that option.
         for c in self.clients:
             c.close()
         self.proc.terminate()
