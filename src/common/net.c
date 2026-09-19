@@ -198,3 +198,22 @@ int parse_int(const char *s, int *out)
     *out = (int)v;
     return 1;
 }
+
+int is_valid_name(const char *s, size_t max_len)
+{
+    if (s == NULL || *s == '\0')
+    {
+        return 0;
+    }
+
+    size_t len = 0;
+    for (; s[len] != '\0'; len++)
+    {
+        unsigned char c = (unsigned char)s[len];
+        if (len >= max_len || c < 0x21 || c > 0x7E)
+        {
+            return 0; // too long, or a space/control/non-ASCII byte
+        }
+    }
+    return 1;
+}

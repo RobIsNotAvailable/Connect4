@@ -14,6 +14,10 @@
 #define BUFFER_SIZE 256
 #define USERNAME_LEN 32
 
+// Buffer size for a game's name: 20 characters + '\0'. The 20-character
+// limit is the one docs/protocol.md §1.2 states for names.
+#define ROOM_NAME_LEN 21
+
 // Maximum length of one protocol line, '\n' included (see docs/protocol.md).
 #define MAX_LINE 1024
 
@@ -43,6 +47,7 @@ typedef enum
 typedef struct
 {
     int game_id;
+    char name[ROOM_NAME_LEN];
     char owner_username[USERNAME_LEN];
     RoomState state;
 } GameInfo;

@@ -19,6 +19,11 @@ qualunque linguaggio) devono rispettarlo alla lettera.
 - I token successivi sono gli argomenti, in ordine fisso.
 - Nessun token contiene spazi. Gli username sono assegnati dal server
   (`Player1`, `Player2`, …) e rispettano già questa regola.
+- I testi scelti dal client (per ora il nome di una partita) sono un solo
+  token: da **1 a 20 caratteri**, ciascuno ASCII stampabile diverso dallo
+  spazio (da `!` a `~`, quindi lettere, cifre e simboli; niente accenti).
+  Un nome con spazi viene visto come più token e dà `BAD_ARGS`; un nome
+  troppo lungo o con caratteri non ammessi dà `INVALID_NAME`.
 - Un eventuale `\r` prima del `\n` viene ignorato (così funzionano anche
   `telnet` e terminali che inviano `\r\n`).
 - Lunghezza massima di una riga: **1024 byte**, `\n` compreso. Il server
@@ -63,7 +68,9 @@ ERROR <comando> <codice>
 |-------------------|--------------------------------------------------------------|
 | `UNKNOWN_COMMAND` | Il primo token non è un comando valido                       |
 | `BAD_ARGS`        | Numero di argomenti sbagliato, o argomento non numerico      |
+| `INVALID_NAME`    | Nome troppo lungo, vuoto o con caratteri non ammessi (§1.2)  |
 | `SERVER_FULL`     | Il server ha raggiunto il numero massimo di partite          |
+| `TOO_MANY_GAMES`  | Il client ha già creato il numero massimo di partite (3)     |
 | `NOT_FOUND`       | Nessuna partita con quell'id                                 |
 | `NOT_WAITING`     | La partita non è in attesa di giocatori                      |
 | `SELF_JOIN`       | Il client ha chiesto di unirsi alla propria partita          |
@@ -98,22 +105,33 @@ Se il server è pieno, chiude la connessione senza inviare nulla.
 ### `CREATE_GAME` (client → server)
 
 ```
-CREATE_GAME
+CREATE_GAME <name>
 ```
 
 Crea una nuova partita in stato di attesa, con il mittente come creatore.
+`<name>` è il nome che la partita mostra nella lista (regole in §1.2). I nomi
+non sono univoci: due partite possono chiamarsi allo stesso modo, e si
+distinguono per id e per creatore.
+Un client può possedere al massimo **3** partite alla volta (`MAX_GAMES_PER_OWNER`
+in `include/game_registry.h`), in qualunque stato si trovino.
 
 Risposte possibili:
-- `GAME_CREATED <game_id>`
+- `GAME_CREATED <game_id> <name>`
+- `ERROR CREATE_GAME BAD_ARGS`
+- `ERROR CREATE_GAME INVALID_NAME`
 - `ERROR CREATE_GAME SERVER_FULL`
+- `ERROR CREATE_GAME TOO_MANY_GAMES`
 
 ### `GAME_CREATED` (server → client)
 
 ```
-GAME_CREATED <game_id>
+GAME_CREATED <game_id> <name>
 ```
 
-Esempio: `GAME_CREATED 7`
+Il nome viene rimandato al creatore, così non deve ricordarsi cosa aveva
+inviato per associarlo all'id. Il creatore non riceve `NEW_GAME` (§6).
+
+Esempio: `GAME_CREATED 7 Sfida_1`
 
 ### `LIST_GAMES` (client → server)
 
@@ -128,18 +146,22 @@ Risposta: `GAME_LIST`.
 ### `GAME_LIST` (server → client)
 
 ```
-GAME_LIST <count> [<game_id> <owner_username>]...
+GAME_LIST <count> [<game_id> <name> <owner_username>]...
 ```
 
-Dopo `<count>` seguono esattamente `<count>` coppie id/creatore. Contiene al
+Dopo `<count>` seguono esattamente `<count>` terne id/nome/creatore. Contiene al
 massimo 32 partite. Sono incluse solo le partite in attesa, perché sono le
 uniche a cui ci si può unire.
+
+Se le partite non stanno tutte nel limite di 1024 byte della riga (§1.2), il
+server include solo quelle che ci stanno intere e `<count>` conta solo
+quelle: la riga è sempre ben formata, ma l'elenco può essere più corto.
 
 Esempi:
 
 ```
 GAME_LIST 0
-GAME_LIST 2 3 Player1 7 Player4
+GAME_LIST 2 3 Sfida_1 Player1 7 Rivincita! Player4
 ```
 
 ## 4. Accesso a una partita
@@ -322,10 +344,14 @@ giocatore), che ricevono già i messaggi dettagliati delle sezioni precedenti.
 ### `NEW_GAME` (server → altri client)
 
 ```
-NEW_GAME <game_id> <owner_username>
+NEW_GAME <game_id> <name> <owner_username>
 ```
 
-Una nuova partita è in attesa di un secondo giocatore.
+Una nuova partita è in attesa di un secondo giocatore. Porta tutto ciò che
+serve per mostrarla nella lista (id, nome, creatore), senza dover richiedere
+`LIST_GAMES`.
+
+Esempio: `NEW_GAME 7 Sfida_1 Player1`
 
 ### `GAME_IN_PROGRESS` (server → altri client)
 
@@ -456,8 +482,8 @@ Terminale A:
 
 ```
 WELCOME 1 Player1
-> CREATE_GAME
-GAME_CREATED 1
+> CREATE_GAME Sfida_1
+GAME_CREATED 1 Sfida_1
 JOIN_NOTIFY 1 Player2
 > JOIN_RESPONSE 1 1
 ```
@@ -467,7 +493,7 @@ Terminale B:
 ```
 WELCOME 2 Player2
 > LIST_GAMES
-GAME_LIST 1 1 Player1
+GAME_LIST 1 1 Sfida_1 Player1
 > JOIN_GAME 1
 JOIN_RESULT 1 1
 ```

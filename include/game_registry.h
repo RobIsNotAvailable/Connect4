@@ -10,6 +10,10 @@
 // at most one game per occupied slot.
 #define MAX_GAMES 256
 
+// How many games a single client can own at once, whatever state they are
+// in (WAITING, PLAYING or FINISHED all count until the game is removed).
+#define MAX_GAMES_PER_OWNER 3
+
 // Bookkeeping for a single game: identity + owner + current state.
 // owner_sock is kept (not just the username) so the join notification can
 // be sent directly to the owner's socket without another lookup in the
@@ -17,6 +21,7 @@
 typedef struct
 {
     int id;
+    char name[ROOM_NAME_LEN]; // chosen by the owner at creation, shown in the lobby
     int owner_sock;
     char owner_username[USERNAME_LEN];
     RoomState state;
@@ -26,6 +31,15 @@ typedef struct
     int turn;   // 1 or 2: who moves next. Unused (left at 0) while WAITING
     int winner; // valid only once state == GAME_FINISHED: 1, 2, or 0 for a draw
 } Game;
+
+// Outcomes of game_create(), used by the caller to pick which ERROR code
+// (if any) to send back to the creator.
+typedef enum
+{
+    CREATE_OK,
+    CREATE_ERR_SERVER_FULL,
+    CREATE_ERR_TOO_MANY_GAMES
+} CreateResult;
 
 // Outcomes of game_registry_set_pending(), used by the caller to pick
 // which ERROR code (if any) to send back to the joiner.
@@ -81,11 +95,14 @@ typedef struct
     int notify_sock; // direct-message recipient for this event, or -1 if none
 } DisconnectEvent;
 
-// Creates a new game owned by (owner_sock, owner_username), state WAITING.
-// Returns the created Game, or a Game with id == -1 if the registry is
-// full. No check on whether owner already owns another game: not required
-// yet, to be decided/added when join/accept semantics are defined.
-Game game_create(int owner_sock, const char *owner_username);
+// Creates a new game called 'name', owned by (owner_sock, owner_username),
+// state WAITING, unless the registry is full or the owner already owns
+// MAX_GAMES_PER_OWNER games. 'name' must already have passed
+// is_valid_name (at most ROOM_NAME_LEN - 1 characters): it is not checked
+// again here. Names are not unique - two games can share one. On
+// CREATE_OK, 'out_game' is filled with the new game (needed by the caller
+// for its id); on any other result it is left untouched.
+CreateResult game_create(int owner_sock, const char *owner_username, const char *name, Game *out_game);
 
 // Removes or updates every game where 'sock' is the owner, the pending
 // joiner, or player2, because that client just disconnected. Fills

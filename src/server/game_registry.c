@@ -6,10 +6,11 @@
 // These are the private helpers defined in this file, forward-declared
 // here so each can be defined after its first caller: free_slot after
 // game_registry_handle_disconnect, game_id_is_valid and is_playing after
-// game_registry_set_pending.
+// game_registry_set_pending, count_owned_games after game_create.
 static void free_slot(int index);
 static int game_id_is_valid(int game_id);
 static int is_playing(int sock);
+static int count_owned_games(int sock);
 
 // Thread-safe registry of games, mirroring ClientList (see
 // client_registry.c): a slot map indexed directly by id (games[id - 1] IS
@@ -33,7 +34,7 @@ static GameRegistry registry = {
     .mutex = PTHREAD_MUTEX_INITIALIZER
 };
 
-Game game_create(int owner_sock, const char *owner_username)
+CreateResult game_create(int owner_sock, const char *owner_username, const char *name, Game *out_game)
 {
     Game new_game = {
         .id = -1,
@@ -44,12 +45,23 @@ Game game_create(int owner_sock, const char *owner_username)
         .turn = 0,
         .winner = 0
     };
+    strncpy(new_game.name, name, ROOM_NAME_LEN);
     strncpy(new_game.owner_username, owner_username, USERNAME_LEN);
     board_init(&new_game.board);
 
+    CreateResult result;
+
     pthread_mutex_lock(&registry.mutex);
 
-    if (registry.count < MAX_GAMES)
+    if (count_owned_games(owner_sock) >= MAX_GAMES_PER_OWNER)
+    {
+        result = CREATE_ERR_TOO_MANY_GAMES;
+    }
+    else if (registry.count >= MAX_GAMES)
+    {
+        result = CREATE_ERR_SERVER_FULL;
+    }
+    else
     {
         int id = (registry.free_count > 0)
             ? registry.free_ids[--registry.free_count]
@@ -58,16 +70,35 @@ Game game_create(int owner_sock, const char *owner_username)
         new_game.id = id;
         registry.games[id - 1] = new_game; // direct slot write, no scan
         registry.count++;
+        *out_game = new_game;
+        result = CREATE_OK;
     }
 
     pthread_mutex_unlock(&registry.mutex);
 
-    return new_game;
+    return result;
+}
+
+// Returns how many occupied slots have 'sock' as owner, whatever their
+// state. Caller must hold registry.mutex. Same bounded full scan as
+// is_playing below; only runs on CREATE_GAME, which is rare.
+static int count_owned_games(int sock)
+{
+    int n = 0;
+
+    for (int i = 0; i < registry.next_id - 1; i++)
+    {
+        if (registry.games[i].state != GAME_EMPTY && registry.games[i].owner_sock == sock)
+        {
+            n++;
+        }
+    }
+    return n;
 }
 
 // A single client can be involved (as owner, pending joiner, or player2)
-// in several games at once - own games aren't capped (see game_create's
-// comment), and nothing stops holding more than one pending join request
+// in several games at once - it can own up to MAX_GAMES_PER_OWNER of them,
+// and nothing stops holding more than one pending join request
 // either - so this has to check every occupied slot; unlike a single-game
 // lookup by id it isn't a single-slot operation. Bounded by the highest
 // id ever handed out rather than MAX_GAMES, and only runs once per
@@ -161,6 +192,7 @@ int game_registry_list_waiting(GameInfo *out)
         if (registry.games[i].state == GAME_WAITING)
         {
             out[n].game_id = registry.games[i].id;
+            strncpy(out[n].name, registry.games[i].name, ROOM_NAME_LEN);
             strncpy(out[n].owner_username, registry.games[i].owner_username, USERNAME_LEN);
             out[n].state = registry.games[i].state;
             n++;

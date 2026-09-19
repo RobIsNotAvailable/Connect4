@@ -47,7 +47,7 @@ static void handle_join_notify(char *argv[]);
 static void set_pending_notify(int game_id, const char *joiner_username);
 static void handle_join_result(char *argv[]);
 static void handle_error(char *argv[]);
-static void create_game(int sock);
+static void create_game(int sock, const char *name);
 static void list_games(int sock);
 static void join_game(int sock, int game_id);
 static void respond_to_join(int sock, int accepted);
@@ -128,10 +128,15 @@ int main()
         }
 
         int game_id, accept;
+        char name[64]; // wider than ROOM_NAME_LEN on purpose: lets the server reject a too-long name
         switch (choice)
         {
             case 1:
-                create_game(sock);
+                printf("Game name: ");
+                if (scanf("%63s", name) == 1)
+                {
+                    create_game(sock, name);
+                }
                 break;
             case 2:
                 list_games(sock);
@@ -206,7 +211,7 @@ static void dispatch_reply(char *line)
         char *argv[MAX_ARGS];
         int argc = split_args(line, argv, MAX_ARGS);
 
-        if (strcmp(cmd, "GAME_CREATED") == 0 && argc == 2)
+        if (strcmp(cmd, "GAME_CREATED") == 0 && argc == 3)
         {
             handle_game_created(argv);
         }
@@ -251,19 +256,20 @@ static void handle_game_list(char *line)
     for (int i = 0; i < count; i++)
     {
         char *id_tok = strtok_r(NULL, " ", &saveptr);
+        char *name_tok = strtok_r(NULL, " ", &saveptr);
         char *owner_tok = strtok_r(NULL, " ", &saveptr);
-        if (id_tok == NULL || owner_tok == NULL)
+        if (id_tok == NULL || name_tok == NULL || owner_tok == NULL)
         {
             break; // malformed line: show what we got instead of crashing
         }
-        printf("  id=%s owner=%s\n", id_tok, owner_tok);
+        printf("  id=%s name=%s owner=%s\n", id_tok, name_tok, owner_tok);
     }
     printf("> ");
 }
 
 static void handle_game_created(char *argv[])
 {
-    printf("\n[CLIENT] Game created, id=%s\n> ", argv[1]);
+    printf("\n[CLIENT] Game created, id=%s name=%s\n> ", argv[1], argv[2]);
 }
 
 static void handle_join_notify(char *argv[])
@@ -300,11 +306,12 @@ static void handle_error(char *argv[])
     printf("\n[CLIENT] Error on %s: %s\n> ", argv[1], argv[2]);
 }
 
-// Sends CREATE_GAME. The reply is printed by the receiver thread,
-// not here: only one thread may recv() on the socket (see receiver_thread).
-static void create_game(int sock)
+// Sends CREATE_GAME with the chosen name. The reply is printed by the
+// receiver thread, not here: only one thread may recv() on the socket (see
+// receiver_thread).
+static void create_game(int sock, const char *name)
 {
-    send_line(sock, "CREATE_GAME");
+    send_line(sock, "CREATE_GAME %s", name);
 }
 
 // Sends LIST_GAMES. Reply printed by the receiver thread.

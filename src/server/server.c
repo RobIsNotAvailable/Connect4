@@ -17,7 +17,8 @@
 // top-down, starting from main().
 static void *client_handler(void *sock_id);
 static void dispatch_command(int client_sock, const Client *me, char *line);
-static void handle_create_game(int client_sock, const Client *me);
+static void handle_create_game(int client_sock, const Client *me, int argc, char *argv[]);
+static const char *create_error_code(CreateResult r);
 static void handle_list_games(int client_sock);
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *join_set_error_code(JoinSetResult r);
@@ -191,7 +192,7 @@ static void dispatch_command(int client_sock, const Client *me, char *line)
 
     if (strcmp(cmd, "CREATE_GAME") == 0)
     {
-        handle_create_game(client_sock, me);
+        handle_create_game(client_sock, me, argc, argv);
     }
     else if (strcmp(cmd, "LIST_GAMES") == 0)
     {
@@ -216,18 +217,47 @@ static void dispatch_command(int client_sock, const Client *me, char *line)
     }
 }
 
-static void handle_create_game(int client_sock, const Client *me)
+static void handle_create_game(int client_sock, const Client *me, int argc, char *argv[])
 {
-    Game g = game_create(client_sock, me->username);
-
-    if (g.id == -1)
+    // A name with a space in it arrives as extra tokens, so it fails the
+    // argc check here rather than reaching is_valid_name.
+    if (argc != 2)
     {
-        client_send_line(client_sock, "ERROR CREATE_GAME SERVER_FULL");
+        client_send_line(client_sock, "ERROR CREATE_GAME BAD_ARGS");
+        return;
     }
-    else
+
+    if (!is_valid_name(argv[1], ROOM_NAME_LEN - 1))
     {
-        client_send_line(client_sock, "GAME_CREATED %d", g.id);
-        client_broadcast_except(client_sock, -1, "NEW_GAME %d %s", g.id, me->username);
+        printf("[SERVER] [%s] Create game rejected: invalid name\n", me->username);
+        client_send_line(client_sock, "ERROR CREATE_GAME INVALID_NAME");
+        return;
+    }
+
+    Game g;
+    CreateResult cr = game_create(client_sock, me->username, argv[1], &g);
+
+    if (cr == CREATE_OK)
+    {
+        client_send_line(client_sock, "GAME_CREATED %d %s", g.id, g.name);
+        client_broadcast_except(client_sock, -1, "NEW_GAME %d %s %s", g.id, g.name, me->username);
+        return;
+    }
+
+    const char *code = create_error_code(cr);
+    printf("[SERVER] [%s] Create game rejected: %s\n", me->username, code);
+    client_send_line(client_sock, "ERROR CREATE_GAME %s", code);
+}
+
+// Translates CreateResult (internal to game_registry.c) into the ERROR
+// codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+static const char *create_error_code(CreateResult r)
+{
+    switch (r)
+    {
+        case CREATE_ERR_SERVER_FULL:    return "SERVER_FULL";
+        case CREATE_ERR_TOO_MANY_GAMES: return "TOO_MANY_GAMES";
+        default:                        return "SERVER_FULL"; // CREATE_OK never reaches here
     }
 }
 
@@ -236,14 +266,32 @@ static void handle_list_games(int client_sock)
     GameInfo games[MAX_GAMES_IN_LIST];
     int count = game_registry_list_waiting(games);
 
-    char reply[MAX_LINE];
-    int len = snprintf(reply, sizeof(reply), "GAME_LIST %d", count);
-    for (int i = 0; i < count && len < (int)sizeof(reply); i++)
+    // The entries are built first and the count written afterwards, so
+    // <count> always matches the entries actually in the line: with long
+    // names and usernames 32 entries can exceed MAX_LINE, and a line cut
+    // in the middle of an entry, or a count larger than what follows,
+    // would break the client's parser. An entry that doesn't fit is left
+    // out (along with every one after it). The buffer leaves room for the
+    // "GAME_LIST <count>" prefix (count has at most 2 digits, see
+    // MAX_GAMES_IN_LIST) and the '\n'.
+    char entries[MAX_LINE - sizeof("GAME_LIST 00")];
+    size_t len = 0;
+    int listed = 0;
+
+    for (int i = 0; i < count; i++)
     {
-        len += snprintf(reply + len, sizeof(reply) - len, " %d %s",
-                         games[i].game_id, games[i].owner_username);
+        int n = snprintf(entries + len, sizeof(entries) - len, " %d %s %s",
+                         games[i].game_id, games[i].name, games[i].owner_username);
+        if (n < 0 || (size_t)n >= sizeof(entries) - len)
+        {
+            break; // this entry would be cut off: stop before it
+        }
+        len += n;
+        listed++;
     }
-    client_send_line(client_sock, "%s", reply);
+    entries[len] = '\0'; // drops the partial entry snprintf may have written past 'len'
+
+    client_send_line(client_sock, "GAME_LIST %d%s", listed, entries);
 }
 
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[])
