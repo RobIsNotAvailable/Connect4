@@ -47,6 +47,8 @@ static void handle_join_notify(char *argv[]);
 static void set_pending_notify(int game_id, const char *joiner_username);
 static void handle_join_result(char *argv[]);
 static void handle_error(char *argv[]);
+static void choose_username(int sock);
+static void handle_username_set(char *argv[]);
 static void create_game(int sock, const char *name);
 static void list_games(int sock);
 static void join_game(int sock, int game_id);
@@ -92,10 +94,10 @@ int main()
     int argc;
 
     if (recv_line(&g_reader, line) == LINE_OK &&
-        (argc = split_args(line, argv, MAX_ARGS)) == 3 &&
+        (argc = split_args(line, argv, MAX_ARGS)) == 2 &&
         strcmp(argv[0], "WELCOME") == 0)
     {
-        printf("[CLIENT] Connected as %s (id=%s)\n", argv[2], argv[1]);
+        printf("[CLIENT] Connected (id=%s)\n", argv[1]);
     }
     else
     {
@@ -116,12 +118,16 @@ int main()
     }
     pthread_detach(recv_tid);
 
+    // Until a username is chosen the server rejects every other command
+    // (docs/protocol.md §2), so ask for it before showing the menu.
+    choose_username(sock);
+
     // Minimal menu to exercise the commands implemented so far. Will be
     // replaced by the full textual menu + grid rendering in Phase 7.
     int choice = 0;
     do
     {
-        printf("\n1) Create game\n2) List games\n3) Join game\n4) Respond to join request\n0) Exit\n> ");
+        printf("\n1) Create game\n2) List games\n3) Join game\n4) Respond to join request\n5) Choose username\n0) Exit\n> ");
         if (scanf("%d", &choice) != 1)
         {
             break;
@@ -154,6 +160,9 @@ int main()
                 {
                     respond_to_join(sock, accept);
                 }
+                break;
+            case 5:
+                choose_username(sock); // retry after a rejected name
                 break;
         }
     } while (choice != 0);
@@ -215,6 +224,10 @@ static void dispatch_reply(char *line)
         {
             handle_game_created(argv);
         }
+        else if (strcmp(cmd, "USERNAME_SET") == 0 && argc == 2)
+        {
+            handle_username_set(argv);
+        }
         else if (strcmp(cmd, "JOIN_NOTIFY") == 0 && argc == 3)
         {
             handle_join_notify(argv);
@@ -272,6 +285,11 @@ static void handle_game_created(char *argv[])
     printf("\n[CLIENT] Game created, id=%s name=%s\n> ", argv[1], argv[2]);
 }
 
+static void handle_username_set(char *argv[])
+{
+    printf("\n[CLIENT] Username set to %s\n> ", argv[1]);
+}
+
 static void handle_join_notify(char *argv[])
 {
     set_pending_notify(atoi(argv[1]), argv[2]);
@@ -304,6 +322,21 @@ static void handle_join_result(char *argv[])
 static void handle_error(char *argv[])
 {
     printf("\n[CLIENT] Error on %s: %s\n> ", argv[1], argv[2]);
+}
+
+// Asks for a username and sends SET_USERNAME. Like the other commands, the
+// reply (USERNAME_SET or an ERROR) is printed by the receiver thread. The
+// buffer is wider than the 20-character limit on purpose, so the server is
+// the one that rejects a name that is too long.
+static void choose_username(int sock)
+{
+    char name[64];
+
+    printf("Username: ");
+    if (scanf("%63s", name) == 1)
+    {
+        send_line(sock, "SET_USERNAME %s", name);
+    }
 }
 
 // Sends CREATE_GAME with the chosen name. The reply is printed by the

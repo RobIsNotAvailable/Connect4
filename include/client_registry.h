@@ -6,7 +6,9 @@
 // Maximum number of clients that can be connected to the server at once.
 #define MAX_CLIENTS 64
 
-// Bookkeeping for a single connected client: identity + its socket.
+// Bookkeeping for a single connected client: identity + its socket. The
+// username is empty ("") until the client picks one with SET_USERNAME
+// (docs/protocol.md §2), and never changes after that.
 typedef struct
 {
     int id;
@@ -14,9 +16,26 @@ typedef struct
     char username[USERNAME_LEN];
 } Client;
 
-// Registers a new client and assigns it an id/username. Returns the
-// assigned Client, or a Client with id == -1 if the registry is full.
+// Outcomes of client_list_set_username(), used by the caller to pick which
+// ERROR code (if any) to send back.
+typedef enum
+{
+    SET_USERNAME_OK,
+    SET_USERNAME_ERR_ALREADY_NAMED,
+    SET_USERNAME_ERR_TAKEN
+} SetUsernameResult;
+
+// Registers a new client and assigns it an id, with no username yet.
+// Returns the assigned Client, or a Client with id == -1 if the registry
+// is full.
 Client client_list_add(int sock);
+
+// Gives the client with the given id its username, once: fails if it
+// already has one, or if another connected client already uses the same
+// name (compared ignoring case). 'username' must already have passed
+// is_valid_name. The check and the assignment happen under one lock, so two
+// clients asking for the same name at once can't both get it.
+SetUsernameResult client_list_set_username(int id, const char *username);
 
 // Removes the client with the given id from the registry, if present, and
 // returns its id to the free-id stack for reuse.

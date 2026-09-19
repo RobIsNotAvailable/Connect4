@@ -6,8 +6,8 @@
 
 // Registry capacity: how many games can exist at once. Exposed here (not
 // just in game_registry.c) so a caller can size a buffer to match, e.g.
-// the DisconnectEvent array below - one disconnecting client can affect
-// at most one game per occupied slot.
+// the LeaveEvent array below - one disconnecting client can affect at most
+// one game per occupied slot.
 #define MAX_GAMES 256
 
 // How many games a single client can own at once, whatever state they are
@@ -15,18 +15,18 @@
 #define MAX_GAMES_PER_OWNER 3
 
 // Bookkeeping for a single game: identity + owner + current state.
-// owner_sock is kept (not just the username) so the join notification can
-// be sent directly to the owner's socket without another lookup in the
-// client registry.
+// Players are identified by socket only, never by username: a username is
+// looked up in the client registry when a message needs it. Usernames
+// never change once chosen, so a lookup is always right, while a copy
+// stored here would have to be kept in step whenever the owner changes.
 typedef struct
 {
     int id;
     char name[ROOM_NAME_LEN]; // chosen by the owner at creation, shown in the lobby
     int owner_sock;
-    char owner_username[USERNAME_LEN];
     RoomState state;
     int pending_joiner_sock; // -1 if no join request is currently pending
-    int player2_sock;        // -1 until the game moves to PLAYING
+    int player2_sock;        // -1 while there is no second player (WAITING)
     Board board;
     int turn;   // 1 or 2: who moves next. Unused (left at 0) while WAITING
     int winner; // valid only once state == GAME_FINISHED: 1, 2, or 0 for a draw
@@ -60,7 +60,8 @@ typedef enum
     RESOLVE_ERR_NOT_FOUND,
     RESOLVE_ERR_NOT_OWNER,
     RESOLVE_ERR_NO_PENDING,
-    RESOLVE_ERR_ALREADY_PLAYING
+    RESOLVE_ERR_ALREADY_PLAYING, // the owner is already playing another game
+    RESOLVE_ERR_JOINER_BUSY      // the joiner started playing another game since asking
 } ResolveResult;
 
 // Outcomes of game_registry_apply_move().
@@ -75,41 +76,62 @@ typedef enum
     MOVE_ERR_COLUMN_FULL
 } MoveResult;
 
-// What happened to one game because a client disconnected
-// (docs/protocol.md §8), and which notification(s) the caller needs to
-// send because of it. The disconnecting socket itself is always one of
-// the sockets a GAME_CLOSED broadcast excludes - the caller already
-// knows it, so it isn't repeated here.
+// What happened to one game because a client left it, and which
+// notification(s) the caller needs to send because of it (docs/protocol.md
+// §8). The client that left is not repeated here: the caller already knows
+// who it is.
+//
+// A room outlives the players in it: when one of two players leaves, the
+// other stays and the game goes back to WAITING with a fresh board (if the
+// owner is the one who left, the other player becomes the owner). It is only
+// removed when nobody is left to own it.
 typedef enum
 {
-    DISCONNECT_JOIN_CANCELLED,        // was a pending joiner: notify_sock (the owner) gets JOIN_CANCELLED
-    DISCONNECT_GAME_CLOSED,           // was owner of a WAITING game: broadcast GAME_CLOSED, no direct recipient
-    DISCONNECT_OPPONENT_LEFT_PLAYING, // was owner/player2 of a PLAYING game: notify_sock gets OPPONENT_LEFT, then broadcast GAME_CLOSED
-    DISCONNECT_OPPONENT_LEFT_FINISHED // was owner/player2 of a FINISHED game: notify_sock gets OPPONENT_LEFT only
-} DisconnectEventType;
+    LEAVE_JOIN_CANCELLED, // was a pending joiner: notify_sock (the owner) gets JOIN_CANCELLED
+    LEAVE_ROOM_CLOSED,    // the game is gone: broadcast GAME_CLOSED, no direct recipient
+    LEAVE_ROOM_REOPENED   // notify_sock stays as the owner, game WAITING again: notify_sock gets OPPONENT_LEFT, everyone else NEW_GAME
+} LeaveEventType;
 
 typedef struct
 {
-    DisconnectEventType type;
+    LeaveEventType type;
     int game_id;
-    int notify_sock; // direct-message recipient for this event, or -1 if none
-} DisconnectEvent;
+    char name[ROOM_NAME_LEN]; // the game's name, for the NEW_GAME of a reopened room
+    int notify_sock;          // direct-message recipient for this event, or -1 if none
+} LeaveEvent;
 
-// Creates a new game called 'name', owned by (owner_sock, owner_username),
-// state WAITING, unless the registry is full or the owner already owns
+// Outcomes of game_registry_leave(), used by the caller to pick which ERROR
+// code (if any) to send back.
+typedef enum
+{
+    LEAVE_OK,
+    LEAVE_ERR_NOT_FOUND,
+    LEAVE_ERR_NOT_PLAYER
+} LeaveResult;
+
+// Creates a new game called 'name', owned by 'owner_sock', state WAITING,
+// unless the registry is full or the owner already owns
 // MAX_GAMES_PER_OWNER games. 'name' must already have passed
 // is_valid_name (at most ROOM_NAME_LEN - 1 characters): it is not checked
 // again here. Names are not unique - two games can share one. On
 // CREATE_OK, 'out_game' is filled with the new game (needed by the caller
 // for its id); on any other result it is left untouched.
-CreateResult game_create(int owner_sock, const char *owner_username, const char *name, Game *out_game);
+CreateResult game_create(int owner_sock, const char *name, Game *out_game);
 
-// Removes or updates every game where 'sock' is the owner, the pending
-// joiner, or player2, because that client just disconnected. Fills
-// 'events' (caller-allocated, at least MAX_GAMES entries) with what
-// happened to each affected game and what to notify about it. Returns
-// how many entries were filled.
-int game_registry_handle_disconnect(int sock, DisconnectEvent *events);
+// Applies a disconnect to every game where 'sock' is the owner, the pending
+// joiner, or player2: a pending request is cancelled, and an owner or
+// player2 leaves the game (see LeaveEventType). Fills 'events'
+// (caller-allocated, at least MAX_GAMES entries) with what happened to each
+// affected game and what to notify about it. Returns how many entries were
+// filled.
+int game_registry_handle_disconnect(int sock, LeaveEvent *events);
+
+// Makes 'sock' leave game 'game_id' on its own request (LEAVE_GAME): same
+// rules as a disconnect, whatever the game's state. 'sock' must be the
+// game's owner or player2 - a pending joiner has not joined anything yet.
+// On LEAVE_OK, 'event' is filled with what the caller has to notify (see
+// LeaveEventType); on any other result it is left untouched.
+LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event);
 
 // Fills 'out' with up to MAX_GAMES_IN_LIST currently WAITING games.
 // Returns how many were copied.
@@ -125,7 +147,11 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
 // reject: state stays WAITING, pending cleared. 'out_game' is filled with
 // the game's state after the call, with pending_joiner_sock always equal
 // to the joiner that was just resolved (accepted or not), so the caller
-// knows who to notify with JOIN_RESULT.
+// knows who to notify with JOIN_RESULT. The same holds for
+// RESOLVE_ERR_JOINER_BUSY, where the request is cancelled too: unlike
+// ALREADY_PLAYING (the owner has to try again later), a request from someone
+// who is busy elsewhere would otherwise sit there and block the game for
+// everybody else.
 ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game);
 
 // Validates and applies one MOVE (docs/protocol.md §5): checks the game

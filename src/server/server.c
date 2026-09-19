@@ -16,9 +16,14 @@
 // Keeping only signatures here lets the definitions further down read
 // top-down, starting from main().
 static void *client_handler(void *sock_id);
-static void dispatch_command(int client_sock, const Client *me, char *line);
+static void dispatch_command(int client_sock, Client *me, char *line);
+static void handle_set_username(int client_sock, Client *me, int argc, char *argv[]);
+static const char *set_username_error_code(SetUsernameResult r);
+static const char *log_name(const Client *me);
 static void handle_create_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *create_error_code(CreateResult r);
+static void handle_leave_game(int client_sock, const Client *me, int argc, char *argv[]);
+static const char *leave_error_code(LeaveResult r);
 static void handle_list_games(int client_sock);
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *join_set_error_code(JoinSetResult r);
@@ -30,6 +35,7 @@ static void handle_move(int client_sock, const Client *me, int argc, char *argv[
 static void send_game_over(const Game *g);
 static const char *move_error_code(MoveResult r);
 static void handle_disconnect(int client_sock);
+static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n);
 
 int main()
 {
@@ -106,9 +112,9 @@ static void *client_handler(void *sock_id)
         pthread_exit(NULL);
     }
 
-    printf("[SERVER] New client connected on socket %d, assigned id=%d username=%s\n", client_sock, me.id, me.username);
+    printf("[SERVER] New client connected on socket %d, assigned id=%d\n", client_sock, me.id);
 
-    client_send_line(client_sock, "WELCOME %d %s", me.id, me.username);
+    client_send_line(client_sock, "WELCOME %d", me.id);
 
     LineReader reader;
     line_reader_init(&reader, client_sock);
@@ -122,14 +128,14 @@ static void *client_handler(void *sock_id)
 
     if (comm_status == LINE_CLOSED)
     {
-        printf("[SERVER] Client %s (socket %d) disconnected\n", me.username, client_sock);
+        printf("[SERVER] Client %s (socket %d) disconnected\n", log_name(&me), client_sock);
     }
     else if (comm_status == LINE_TOO_LONG)
     {
         // docs/protocol.md §1.2: a client that sends a line longer than
         // MAX_LINE gets disconnected, with no error message.
         printf("[SERVER] Client %s (socket %d) sent a line longer than %d bytes, closing\n",
-               me.username, client_sock, MAX_LINE);
+               log_name(&me), client_sock, MAX_LINE);
     }
     else
     {
@@ -142,14 +148,21 @@ static void *client_handler(void *sock_id)
     pthread_exit(NULL);
 }
 
-// Sends whatever notifications docs/protocol.md §8 requires because
-// 'client_sock' just disconnected, for every game it was involved in
-// (as owner, pending joiner, or player2).
+// Applies docs/protocol.md §8 for 'client_sock', which just disconnected,
+// to every game it was involved in (as owner, pending joiner, or player2).
 static void handle_disconnect(int client_sock)
 {
-    DisconnectEvent events[MAX_GAMES];
+    LeaveEvent events[MAX_GAMES];
     int n = game_registry_handle_disconnect(client_sock, events);
 
+    notify_leave_events(client_sock, events, n);
+}
+
+// Sends the notifications for what the registry did because 'leaver_sock'
+// left some games (docs/protocol.md §6 and §8). Kept apart from
+// handle_disconnect so an explicit leave can send exactly the same messages.
+static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n)
+{
     for (int i = 0; i < n; i++)
     {
         int game_id = events[i].game_id;
@@ -157,19 +170,28 @@ static void handle_disconnect(int client_sock)
 
         switch (events[i].type)
         {
-            case DISCONNECT_JOIN_CANCELLED:
+            case LEAVE_JOIN_CANCELLED:
                 client_send_line(notify_sock, "JOIN_CANCELLED %d", game_id);
                 break;
-            case DISCONNECT_GAME_CLOSED:
-                client_broadcast_except(client_sock, -1, "GAME_CLOSED %d", game_id);
+            case LEAVE_ROOM_CLOSED:
+                // Nobody in the game is left to tell, apart from a pending
+                // joiner, who is covered by the broadcast like everyone else.
+                client_broadcast_except(leaver_sock, -1, "GAME_CLOSED %d", game_id);
                 break;
-            case DISCONNECT_OPPONENT_LEFT_PLAYING:
+            case LEAVE_ROOM_REOPENED:
+            {
+                // notify_sock is the remaining player and, from now on, the
+                // owner: everyone else is told the game is joinable again.
                 client_send_line(notify_sock, "OPPONENT_LEFT %d", game_id);
-                client_broadcast_except(client_sock, notify_sock, "GAME_CLOSED %d", game_id);
+
+                char owner_username[USERNAME_LEN];
+                if (client_list_find_username(notify_sock, owner_username))
+                {
+                    client_broadcast_except(notify_sock, -1, "NEW_GAME %d %s %s",
+                                            game_id, events[i].name, owner_username);
+                }
                 break;
-            case DISCONNECT_OPPONENT_LEFT_FINISHED:
-                client_send_line(notify_sock, "OPPONENT_LEFT %d", game_id);
-                break;
+            }
         }
     }
 }
@@ -177,7 +199,7 @@ static void handle_disconnect(int client_sock)
 // Splits one received line into command + arguments and calls the
 // matching handler. An unrecognized command, or one that fails its own
 // validation, gets "ERROR <comando> <codice>" per docs/protocol.md §1.5.
-static void dispatch_command(int client_sock, const Client *me, char *line)
+static void dispatch_command(int client_sock, Client *me, char *line)
 {
     char *argv[MAX_ARGS];
     int argc = split_args(line, argv, MAX_ARGS);
@@ -188,9 +210,21 @@ static void dispatch_command(int client_sock, const Client *me, char *line)
     }
 
     const char *cmd = argv[0];
-    printf("[SERVER] [%s] Received command: %s\n", me->username, cmd);
+    printf("[SERVER] [%s] Received command: %s\n", log_name(me), cmd);
 
-    if (strcmp(cmd, "CREATE_GAME") == 0)
+    if (strcmp(cmd, "SET_USERNAME") == 0)
+    {
+        handle_set_username(client_sock, me, argc, argv);
+    }
+    else if (me->username[0] == '\0')
+    {
+        // docs/protocol.md §2: until a username is chosen, SET_USERNAME is
+        // the only accepted command. Every name a game or a notification
+        // shows is therefore already final. The command is echoed as sent,
+        // cut to a length that always fits in a line.
+        client_send_line(client_sock, "ERROR %.31s NO_USERNAME", cmd);
+    }
+    else if (strcmp(cmd, "CREATE_GAME") == 0)
     {
         handle_create_game(client_sock, me, argc, argv);
     }
@@ -210,11 +244,66 @@ static void dispatch_command(int client_sock, const Client *me, char *line)
     {
         handle_move(client_sock, me, argc, argv);
     }
+    else if (strcmp(cmd, "LEAVE_GAME") == 0)
+    {
+        handle_leave_game(client_sock, me, argc, argv);
+    }
     else
     {
         printf("[SERVER] [%s] Unknown command: %s\n", me->username, cmd);
         client_send_line(client_sock, "ERROR - UNKNOWN_COMMAND");
     }
+}
+
+// The username is chosen once, right after connecting (docs/protocol.md
+// §2). 'me' is this handler's own copy of the client: the registry's copy
+// is the one that changes, so on success 'me' is refreshed to match.
+static void handle_set_username(int client_sock, Client *me, int argc, char *argv[])
+{
+    if (argc != 2)
+    {
+        client_send_line(client_sock, "ERROR SET_USERNAME BAD_ARGS");
+        return;
+    }
+
+    if (!is_valid_name(argv[1], USERNAME_LEN - 1))
+    {
+        client_send_line(client_sock, "ERROR SET_USERNAME INVALID_NAME");
+        return;
+    }
+
+    SetUsernameResult sr = client_list_set_username(me->id, argv[1]);
+
+    if (sr == SET_USERNAME_OK)
+    {
+        strncpy(me->username, argv[1], USERNAME_LEN);
+        printf("[SERVER] Client id=%d chose username %s\n", me->id, me->username);
+        client_send_line(client_sock, "USERNAME_SET %s", me->username);
+        return;
+    }
+
+    const char *code = set_username_error_code(sr);
+    printf("[SERVER] Client id=%d username %s rejected: %s\n", me->id, argv[1], code);
+    client_send_line(client_sock, "ERROR SET_USERNAME %s", code);
+}
+
+// Translates SetUsernameResult (internal to client_registry.c) into the
+// ERROR codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+static const char *set_username_error_code(SetUsernameResult r)
+{
+    switch (r)
+    {
+        case SET_USERNAME_ERR_ALREADY_NAMED: return "ALREADY_NAMED";
+        case SET_USERNAME_ERR_TAKEN:         return "USERNAME_TAKEN";
+        default:                             return "ALREADY_NAMED"; // SET_USERNAME_OK never reaches here
+    }
+}
+
+// What to call a client in the server's log: its username, or "(no name)"
+// while it hasn't chosen one yet.
+static const char *log_name(const Client *me)
+{
+    return me->username[0] != '\0' ? me->username : "(no name)";
 }
 
 static void handle_create_game(int client_sock, const Client *me, int argc, char *argv[])
@@ -235,7 +324,7 @@ static void handle_create_game(int client_sock, const Client *me, int argc, char
     }
 
     Game g;
-    CreateResult cr = game_create(client_sock, me->username, argv[1], &g);
+    CreateResult cr = game_create(client_sock, argv[1], &g);
 
     if (cr == CREATE_OK)
     {
@@ -280,8 +369,14 @@ static void handle_list_games(int client_sock)
 
     for (int i = 0; i < count; i++)
     {
+        char owner_username[USERNAME_LEN];
+        if (!client_list_find_username(games[i].owner_sock, owner_username))
+        {
+            continue; // the owner disconnected since the snapshot: this game is about to be removed
+        }
+
         int n = snprintf(entries + len, sizeof(entries) - len, " %d %s %s",
-                         games[i].game_id, games[i].name, games[i].owner_username);
+                         games[i].game_id, games[i].name, owner_username);
         if (n < 0 || (size_t)n >= sizeof(entries) - len)
         {
             break; // this entry would be cut off: stop before it
@@ -367,6 +462,13 @@ static void handle_join_response(int client_sock, const Client *me, int argc, ch
         return;
     }
 
+    if (rr == RESOLVE_ERR_JOINER_BUSY)
+    {
+        // The request is over, as if the owner had refused it: the joiner
+        // has to be told (the owner gets the error below).
+        client_send_line(g.pending_joiner_sock, "JOIN_RESULT %d 0", game_id);
+    }
+
     const char *code = resolve_error_code(rr);
     printf("[SERVER] [%s] Join response for game %d rejected: %s\n", me->username, game_id, code);
     client_send_line(client_sock, "ERROR JOIN_RESPONSE %s", code);
@@ -382,6 +484,7 @@ static const char *resolve_error_code(ResolveResult r)
         case RESOLVE_ERR_NOT_OWNER:  return "NOT_OWNER";
         case RESOLVE_ERR_NO_PENDING: return "NO_PENDING";
         case RESOLVE_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
+        case RESOLVE_ERR_JOINER_BUSY:     return "JOINER_BUSY";
         default:                     return "NOT_FOUND"; // RESOLVE_OK never reaches here
     }
 }
@@ -393,11 +496,21 @@ static const char *resolve_error_code(ResolveResult r)
 // §7 - same two messages, same trigger shape).
 static void send_game_start(const Game *g)
 {
-    char player2_username[USERNAME_LEN] = {0};
-    client_list_find_username(g->player2_sock, player2_username);
+    char owner_username[USERNAME_LEN];
+    char player2_username[USERNAME_LEN];
+
+    // A player that disconnected since 'g' was read from the registry no
+    // longer has a username, and its handler is about to close the game
+    // and tell the other player. Send nothing rather than a GAME_START
+    // with an empty opponent name, which would be a malformed line.
+    if (!client_list_find_username(g->owner_sock, owner_username) ||
+        !client_list_find_username(g->player2_sock, player2_username))
+    {
+        return;
+    }
 
     client_send_line(g->owner_sock, "GAME_START %d 1 %s", g->id, player2_username);
-    client_send_line(g->player2_sock, "GAME_START %d 2 %s", g->id, g->owner_username);
+    client_send_line(g->player2_sock, "GAME_START %d 2 %s", g->id, owner_username);
 
     send_game_state(g);
 }
@@ -460,6 +573,46 @@ static void send_game_over(const Game *g)
     int loser_sock = (g->winner == 1) ? g->player2_sock : g->owner_sock;
     client_send_line(winner_sock, "GAME_OVER %d WIN", g->id);
     client_send_line(loser_sock, "GAME_OVER %d LOSE", g->id);
+}
+
+// LEAVE_GAME: the sender leaves a game it is a player of (docs/protocol.md
+// §7). The registry applies the same rules as for a disconnect; the sender
+// gets GAME_LEFT first and then, like everyone else, whatever
+// notify_leave_events says about the game it left.
+static void handle_leave_game(int client_sock, const Client *me, int argc, char *argv[])
+{
+    int game_id;
+    if (argc != 2 || !parse_int(argv[1], &game_id))
+    {
+        client_send_line(client_sock, "ERROR LEAVE_GAME BAD_ARGS");
+        return;
+    }
+
+    LeaveEvent event;
+    LeaveResult lr = game_registry_leave(game_id, client_sock, &event);
+
+    if (lr == LEAVE_OK)
+    {
+        client_send_line(client_sock, "GAME_LEFT %d", game_id);
+        notify_leave_events(client_sock, &event, 1);
+        return;
+    }
+
+    const char *code = leave_error_code(lr);
+    printf("[SERVER] [%s] Leave game %d rejected: %s\n", me->username, game_id, code);
+    client_send_line(client_sock, "ERROR LEAVE_GAME %s", code);
+}
+
+// Translates LeaveResult (internal to game_registry.c) into the ERROR
+// codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+static const char *leave_error_code(LeaveResult r)
+{
+    switch (r)
+    {
+        case LEAVE_ERR_NOT_FOUND:  return "NOT_FOUND";
+        case LEAVE_ERR_NOT_PLAYER: return "NOT_PLAYER";
+        default:                   return "NOT_FOUND"; // LEAVE_OK never reaches here
+    }
 }
 
 // Translates MoveResult (internal to game_registry.c) into the ERROR

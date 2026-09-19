@@ -2,12 +2,15 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include "client_registry.h"
 #include "net.h"
 
 // The public functions below are already declared in client_registry.h.
-// This is the only private helper defined in this file, forward-declared
-// here so it can be defined after its caller (client_send_line).
+// These are the private helpers defined in this file, forward-declared
+// here so each can be defined after its first caller: username_in_use after
+// client_list_set_username, find_client_by_sock after client_send_line.
+static int username_in_use(const char *username);
 static int find_client_by_sock(int sock, int *out_id);
 
 // Thread-safe registry of currently connected clients. Fixed-size array
@@ -67,7 +70,6 @@ Client client_list_add(int sock)
             : clients.next_id++;
 
         new_client.id = id;
-        snprintf(new_client.username, USERNAME_LEN, "Player%d", id);
         clients.clients[id - 1] = new_client; // direct slot write, no scan
         clients.count++;
     }
@@ -75,6 +77,52 @@ Client client_list_add(int sock)
     pthread_mutex_unlock(&clients.mutex);
 
     return new_client;
+}
+
+SetUsernameResult client_list_set_username(int id, const char *username)
+{
+    SetUsernameResult result;
+
+    pthread_mutex_lock(&clients.mutex);
+
+    // 'id' is the caller's own id, and the caller is that client's own
+    // handler thread, which only removes the client after it stops
+    // calling this: the slot is always occupied here.
+    Client *client = &clients.clients[id - 1];
+
+    if (client->username[0] != '\0')
+    {
+        result = SET_USERNAME_ERR_ALREADY_NAMED;
+    }
+    else if (username_in_use(username))
+    {
+        result = SET_USERNAME_ERR_TAKEN;
+    }
+    else
+    {
+        strncpy(client->username, username, USERNAME_LEN);
+        result = SET_USERNAME_OK;
+    }
+
+    pthread_mutex_unlock(&clients.mutex);
+
+    return result;
+}
+
+// Returns 1 if a connected client already uses 'username', ignoring case
+// ("Anna" and "anna" would be indistinguishable in a lobby list). A client
+// with no username yet has "" here, which never matches a valid name.
+// Caller must hold 'mutex'.
+static int username_in_use(const char *username)
+{
+    for (int i = 0; i < clients.next_id - 1; i++)
+    {
+        if (clients.clients[i].id != 0 && strcasecmp(clients.clients[i].username, username) == 0)
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 void client_list_remove(int id)

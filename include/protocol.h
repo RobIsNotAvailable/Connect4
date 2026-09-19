@@ -12,7 +12,10 @@
 
 #define PORT 8080
 #define BUFFER_SIZE 256
-#define USERNAME_LEN 32
+
+// Buffer size for a username: 20 characters + '\0', the same limit
+// docs/protocol.md §1.2 states for every name chosen by a client.
+#define USERNAME_LEN 21
 
 // Buffer size for a game's name: 20 characters + '\0'. The 20-character
 // limit is the one docs/protocol.md §1.2 states for names.
@@ -43,12 +46,14 @@ typedef enum
 
 // One entry used by the server to build a GAME_LIST reply (see
 // docs/protocol.md §3). Purely in-memory bookkeeping now, not a wire
-// struct, so no __attribute__((packed)) needed anymore.
+// struct, so no __attribute__((packed)) needed anymore. The owner is
+// identified by socket: the caller looks its username up in the client
+// registry when it builds the line.
 typedef struct
 {
     int game_id;
     char name[ROOM_NAME_LEN];
-    char owner_username[USERNAME_LEN];
+    int owner_sock;
     RoomState state;
 } GameInfo;
 

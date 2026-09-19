@@ -17,9 +17,9 @@ qualunque linguaggio) devono rispettarlo alla lettera.
 - La riga è composta da **token separati da un singolo spazio**.
 - Il **primo token** è il nome del comando, in maiuscolo (es. `JOIN_GAME`).
 - I token successivi sono gli argomenti, in ordine fisso.
-- Nessun token contiene spazi. Gli username sono assegnati dal server
-  (`Player1`, `Player2`, …) e rispettano già questa regola.
-- I testi scelti dal client (per ora il nome di una partita) sono un solo
+- Nessun token contiene spazi. Anche gli username la rispettano: li sceglie
+  il client (§2) e sono un solo token.
+- I testi scelti dal client (il nome di una partita e lo username) sono un solo
   token: da **1 a 20 caratteri**, ciascuno ASCII stampabile diverso dallo
   spazio (da `!` a `~`, quindi lettere, cifre e simboli; niente accenti).
   Un nome con spazi viene visto come più token e dà `BAD_ARGS`; un nome
@@ -71,6 +71,9 @@ ERROR <comando> <codice>
 | `INVALID_NAME`    | Nome troppo lungo, vuoto o con caratteri non ammessi (§1.2)  |
 | `SERVER_FULL`     | Il server ha raggiunto il numero massimo di partite          |
 | `TOO_MANY_GAMES`  | Il client ha già creato il numero massimo di partite (3)     |
+| `NO_USERNAME`     | Il client non ha ancora scelto lo username (§2)              |
+| `ALREADY_NAMED`   | Il client ha già scelto lo username e non può cambiarlo      |
+| `USERNAME_TAKEN`  | Un altro client connesso usa già quello username             |
 | `NOT_FOUND`       | Nessuna partita con quell'id                                 |
 | `NOT_WAITING`     | La partita non è in attesa di giocatori                      |
 | `SELF_JOIN`       | Il client ha chiesto di unirsi alla propria partita          |
@@ -78,6 +81,7 @@ ERROR <comando> <codice>
 | `NOT_OWNER`       | Solo il creatore della partita può eseguire questa azione    |
 | `NO_PENDING`      | Non c'è nessuna richiesta da accettare/rifiutare             |
 | `ALREADY_PLAYING` | Il client sta già giocando un'altra partita                  |
+| `JOINER_BUSY`     | Chi chiedeva di entrare sta già giocando un'altra partita    |
 | `NOT_PLAYER`      | Il client non è uno dei due giocatori di quella partita      |
 | `NOT_PLAYING`     | La partita non è in corso                                    |
 | `NOT_YOUR_TURN`   | Non è il turno del mittente                                  |
@@ -90,15 +94,50 @@ ERROR <comando> <codice>
 ### `WELCOME` (server → client)
 
 ```
-WELCOME <client_id> <username>
+WELCOME <client_id>
 ```
 
 Primo messaggio inviato dal server subito dopo la connessione. Comunica al
-client l'identità che gli è stata assegnata.
+client l'id che gli è stato assegnato. Il client non ha ancora uno username:
+deve sceglierlo con `SET_USERNAME`.
 
-Esempio: `WELCOME 3 Player3`
+Esempio: `WELCOME 3`
 
 Se il server è pieno, chiude la connessione senza inviare nulla.
+
+### `SET_USERNAME` (client → server)
+
+```
+SET_USERNAME <username>
+```
+
+Sceglie lo username del client. Si fa **una sola volta**, subito dopo la
+connessione, e poi non si può più cambiare: finché non è stato scelto, il
+server rifiuta ogni altro comando con `ERROR <comando> NO_USERNAME`. Così ogni
+nome che compare in una partita o in una notifica è già definitivo.
+
+- `<username>` rispetta le regole dei nomi di §1.2 (da 1 a 20 caratteri).
+- Gli username sono **univoci** tra i client connessi, senza distinguere
+  maiuscole e minuscole: `Anna` e `anna` sono lo stesso nome. Uno username
+  torna libero quando il suo client si disconnette.
+
+Risposte possibili:
+- `USERNAME_SET <username>`
+- `ERROR SET_USERNAME BAD_ARGS`
+- `ERROR SET_USERNAME INVALID_NAME`
+- `ERROR SET_USERNAME USERNAME_TAKEN` (il client può riprovare con un altro nome)
+- `ERROR SET_USERNAME ALREADY_NAMED`
+
+### `USERNAME_SET` (server → client)
+
+```
+USERNAME_SET <username>
+```
+
+Conferma lo username scelto. Da questo momento il client può usare tutti gli
+altri comandi.
+
+Esempio: `USERNAME_SET Anna`
 
 ## 3. Creazione e lista delle partite
 
@@ -212,7 +251,10 @@ JOIN_RESPONSE <game_id> <accepted>
 Se accettata, la partita passa in corso. Se rifiutata, resta in attesa e può
 ricevere nuove richieste.
 
-Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`.
+Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`,
+`ALREADY_PLAYING` (il creatore sta già giocando altrove: la richiesta resta in
+attesa), `JOINER_BUSY` (chi chiedeva sta già giocando altrove: la richiesta
+viene annullata e lui riceve `JOIN_RESULT <game_id> 0`, §5.1).
 
 ### `JOIN_RESULT` (server → joiner)
 
@@ -229,11 +271,19 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
 - Il creatore della partita è il **giocatore 1**, chi si unisce è il
   **giocatore 2**.
 - Il giocatore 1 muove per primo.
-- Un client può aver creato più partite, ma può **giocarne una sola alla
-  volta**. Una richiesta che lo porterebbe in una seconda partita in corso
-  riceve `ALREADY_PLAYING`:
+- Un client può trovarsi in più partite (crearne fino a 3, farsi accettare in
+  altre), ma può **giocarne una sola alla volta**. Una richiesta che lo
+  porterebbe in una seconda partita in corso riceve `ALREADY_PLAYING`:
   - `JOIN_GAME` inviato da chi sta già giocando;
   - `JOIN_RESPONSE ... 1` inviato da un creatore che sta già giocando altrove.
+- Chi ha fatto una richiesta di accesso non è impegnato finché il creatore non
+  accetta, quindi può averne in attesa in più partite. Se uno dei creatori
+  accetta quando chi chiedeva sta già giocando un'altra partita (per esempio
+  perché un altro creatore ha accettato prima), la richiesta viene annullata:
+  il creatore riceve `JOINER_BUSY`, chi chiedeva riceve `JOIN_RESULT <game_id>
+  0` e la partita resta in attesa di altri giocatori. Succede anche se chi
+  chiedeva ha iniziato a giocare accettando lui stesso la richiesta di un altro
+  nella partita che aveva creato.
 
 ### 5.2 Formato della griglia
 
@@ -347,9 +397,11 @@ giocatore), che ricevono già i messaggi dettagliati delle sezioni precedenti.
 NEW_GAME <game_id> <name> <owner_username>
 ```
 
-Una nuova partita è in attesa di un secondo giocatore. Porta tutto ciò che
-serve per mostrarla nella lista (id, nome, creatore), senza dover richiedere
-`LIST_GAMES`.
+Una partita è in attesa di un secondo giocatore: appena creata, oppure
+tornata in attesa perché uno dei due giocatori è uscito (§8). Porta tutto ciò
+che serve per mostrarla nella lista (id, nome, creatore), senza dover
+richiedere `LIST_GAMES`. Nel secondo caso il creatore può essere diverso da
+quello di prima.
 
 Esempio: `NEW_GAME 7 Sfida_1 Player1`
 
@@ -368,8 +420,10 @@ riparte con una rivincita.
 GAME_CLOSED <game_id>
 ```
 
-La partita si è conclusa oppure è stata eliminata (es. il creatore si è
-disconnesso mentre era in attesa). Il client la toglie dalla lista.
+La partita esce dalla lista: si è conclusa, oppure è stata eliminata (es. il
+creatore si è disconnesso mentre era in attesa, o se n'è andato l'ultimo
+giocatore rimasto, §8). Il client la toglie dalla lista. Una partita conclusa
+può tornare in lista con `NEW_GAME` se uno dei due giocatori esce.
 
 ## 7. Rivincita e uscita
 
@@ -436,24 +490,67 @@ REMATCH_RESULT <game_id> <accepted>
 LEAVE_GAME <game_id>
 ```
 
-Uno dei due giocatori abbandona una partita **terminata** senza giocare la
-rivincita. La partita viene eliminata e l'avversario riceve `OPPONENT_LEFT`.
+Uno dei due giocatori lascia la partita, in qualunque stato si trovi: in
+attesa (può farlo solo il creatore, da solo), in corso o terminata. La partita
+non viene eliminata: valgono le stesse regole di una disconnessione (§8).
 
-Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER`, `NOT_FINISHED`.
+- Il **secondo giocatore** esce: la partita torna in attesa, con la griglia
+  vuota. Il creatore riceve `OPPONENT_LEFT`.
+- Il **creatore**, con un secondo giocatore, esce: il secondo giocatore
+  diventa il creatore e la partita torna in attesa. Lui riceve
+  `OPPONENT_LEFT`.
+- Il **creatore da solo** esce: la partita viene eliminata. È il modo di
+  eliminare una partita che si è creata, e libera un posto tra le 3 consentite.
 
-## 8. Disconnessioni
+Uscire a metà partita non assegna la vittoria a nessuno.
 
-Quando un client si disconnette, il server applica queste regole a ogni
-partita in cui era coinvolto:
+Il mittente riceve `GAME_LEFT`. Da quel momento è un client come gli altri
+rispetto a quella partita, e ne riceve le notifiche di §6: per esempio
+`NEW_GAME` se la partita torna in lista, ma non `GAME_CLOSED` se è stata
+eliminata (gli basta `GAME_LEFT`). Un client può uscire da una partita e
+subito dopo unirsi a un'altra, o alla stessa (§5.1: gioca una partita alla
+volta).
+
+Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER` (anche per chi ha solo
+una richiesta di accesso in attesa, che non è ancora un giocatore).
+
+### `GAME_LEFT` (server → client)
+
+```
+GAME_LEFT <game_id>
+```
+
+Conferma a chi ha inviato `LEAVE_GAME` che ha lasciato la partita. Arriva prima
+delle eventuali notifiche di §6 su quella stessa partita.
+
+Esempio: `GAME_LEFT 7`
+
+## 8. Uscite e disconnessioni
+
+Una partita (la stanza) sopravvive ai giocatori che ci sono dentro: quando ne
+esce uno, resta l'altro. Quando un client si disconnette, il server applica
+queste regole a ogni partita in cui era coinvolto. Sono le stesse di
+`LEAVE_GAME` (§7), che le applica a una sola partita e lascia il client
+connesso:
 
 | Situazione                                    | Cosa succede                                                                 |
 |-----------------------------------------------|------------------------------------------------------------------------------|
 | Creatore di una partita in attesa             | Partita eliminata; tutti gli altri client ricevono `GAME_CLOSED`, compreso un eventuale joiner in attesa di risposta, che deve considerare la richiesta chiusa |
 | Joiner con una richiesta di accesso in attesa | La richiesta viene annullata; il creatore riceve `JOIN_CANCELLED`            |
-| Giocatore di una partita in corso o terminata | Partita eliminata; l'avversario riceve `OPPONENT_LEFT`, gli altri client `GAME_CLOSED` (solo se era in corso) |
+| Secondo giocatore di una partita in corso o terminata | La partita resta e torna in attesa, con la griglia vuota. Il creatore riceve `OPPONENT_LEFT`, gli altri client `NEW_GAME` |
+| Creatore di una partita in corso o terminata  | Il secondo giocatore diventa il creatore e la partita torna in attesa, con la griglia vuota. Lui riceve `OPPONENT_LEFT`, gli altri client `NEW_GAME` con il suo username |
+
+Un client possiede al massimo 3 partite (§3): se il secondo giocatore che
+dovrebbe subentrare come creatore ne possiede già 3, non può farlo e la partita
+viene eliminata. In quel caso lui, come tutti gli altri client, riceve
+`GAME_CLOSED` (e non `OPPONENT_LEFT`).
+
+Una partita sparisce solo quando non resta nessuno che possa possederla: se
+escono entrambi i giocatori, uno dopo l'altro, l'ultimo a restare è un creatore
+solo in una partita in attesa e la partita viene eliminata (`GAME_CLOSED`).
 
 In caso di disconnessione a metà partita non viene assegnata la vittoria a
-nessuno: la partita viene semplicemente chiusa.
+nessuno: la partita ricomincia da capo quando arriva un nuovo giocatore.
 
 ### `JOIN_CANCELLED` (server → owner)
 
@@ -470,8 +567,12 @@ in attesa e può ricevere nuove richieste.
 OPPONENT_LEFT <game_id>
 ```
 
-L'avversario si è disconnesso o ha inviato `LEAVE_GAME`. La partita non esiste
-più.
+L'avversario si è disconnesso o ha inviato `LEAVE_GAME`. La partita esiste
+ancora: adesso è in attesa di un nuovo giocatore, con la griglia vuota, e il
+destinatario ne è il creatore (anche se prima era il secondo giocatore).
+
+Se il destinatario non può subentrare come creatore perché ne possiede già 3
+(§8), non riceve questo messaggio ma `GAME_CLOSED`.
 
 ## 9. Esempio di sessione con netcat
 
@@ -481,19 +582,23 @@ Con il server avviato, due terminali con `nc localhost 8080`. Le righe con
 Terminale A:
 
 ```
-WELCOME 1 Player1
+WELCOME 1
+> SET_USERNAME Anna
+USERNAME_SET Anna
 > CREATE_GAME Sfida_1
 GAME_CREATED 1 Sfida_1
-JOIN_NOTIFY 1 Player2
+JOIN_NOTIFY 1 Marco
 > JOIN_RESPONSE 1 1
 ```
 
 Terminale B:
 
 ```
-WELCOME 2 Player2
+WELCOME 2
+> SET_USERNAME Marco
+USERNAME_SET Marco
 > LIST_GAMES
-GAME_LIST 1 1 Sfida_1 Player1
+GAME_LIST 1 1 Sfida_1 Anna
 > JOIN_GAME 1
 JOIN_RESULT 1 1
 ```
