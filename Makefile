@@ -24,4 +24,9 @@ $(TARGET_CLIENT): $(SRC_CLIENT) $(SRC_COMMON) $(HEADERS)
 clean:
 	rm -rf $(BIN_DIR)/*
 
-.PHONY: all clean
+# Runs every end-to-end test in tests/ against the real server (each test
+# file starts its own copy). All of them run even if one fails.
+test: all
+	@status=0; for t in tests/test_*.py; do python3 $$t || status=1; done; exit $$status
+
+.PHONY: all clean test
