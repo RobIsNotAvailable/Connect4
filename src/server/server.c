@@ -24,6 +24,8 @@ static void handle_create_game(int client_sock, const Client *me, int argc, char
 static const char *create_error_code(CreateResult r);
 static void handle_leave_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *leave_error_code(LeaveResult r);
+static void handle_rematch(int client_sock, const Client *me, int argc, char *argv[]);
+static const char *rematch_error_code(RematchResult r);
 static void handle_list_games(int client_sock);
 static void handle_list_my_games(int client_sock);
 static const char *room_state_name(RoomState s);
@@ -253,6 +255,10 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     else if (strcmp(cmd, "LEAVE_GAME") == 0)
     {
         handle_leave_game(client_sock, me, argc, argv);
+    }
+    else if (strcmp(cmd, "REMATCH") == 0)
+    {
+        handle_rematch(client_sock, me, argc, argv);
     }
     else
     {
@@ -531,9 +537,8 @@ static const char *resolve_error_code(ResolveResult r)
 
 // Sends GAME_START (telling each player their own number and the
 // opponent's username) followed by the initial GAME_STATE, to both
-// players of 'g'. Called whenever a game starts: today only from an
-// accepted join, later also from an accepted rematch (docs/protocol.md
-// §7 - same two messages, same trigger shape).
+// players of 'g'. Called whenever a game starts: from an accepted join, and
+// when both players have asked for a rematch (docs/protocol.md §7).
 static void send_game_start(const Game *g)
 {
     char owner_username[USERNAME_LEN];
@@ -652,6 +657,59 @@ static const char *leave_error_code(LeaveResult r)
         case LEAVE_ERR_NOT_FOUND:  return "NOT_FOUND";
         case LEAVE_ERR_NOT_PLAYER: return "NOT_PLAYER";
         default:                   return "NOT_FOUND"; // LEAVE_OK never reaches here
+    }
+}
+
+// REMATCH: the sender wants to play again in a finished game (docs/protocol.md
+// §7). Nothing is sent back to the sender for a vote that has to wait: the
+// answer is the game starting, or an ERROR. The opponent is told a rematch
+// was asked for. When both have asked, the game restarts and both get
+// GAME_START + GAME_STATE, exactly as when a join is accepted. Other clients
+// hear nothing: they were told GAME_CLOSED when the game ended, and it is
+// not in their list.
+static void handle_rematch(int client_sock, const Client *me, int argc, char *argv[])
+{
+    int game_id;
+    if (argc != 2 || !parse_int(argv[1], &game_id))
+    {
+        client_send_line(client_sock, "ERROR REMATCH BAD_ARGS");
+        return;
+    }
+
+    Game g;
+    RematchResult rr = game_registry_rematch(game_id, client_sock, &g);
+
+    if (rr == REMATCH_STARTED)
+    {
+        send_game_start(&g);
+        return;
+    }
+
+    if (rr == REMATCH_WAITING)
+    {
+        int opponent_sock = (g.owner_sock == client_sock) ? g.player2_sock : g.owner_sock;
+        client_send_line(opponent_sock, "REMATCH_NOTIFY %d", game_id);
+        return;
+    }
+
+    const char *code = rematch_error_code(rr);
+    printf("[SERVER] [%s] Rematch on game %d rejected: %s\n", me->username, game_id, code);
+    client_send_line(client_sock, "ERROR REMATCH %s", code);
+}
+
+// Translates RematchResult (internal to game_registry.c) into the ERROR
+// codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+static const char *rematch_error_code(RematchResult r)
+{
+    switch (r)
+    {
+        case REMATCH_ERR_NOT_FOUND:       return "NOT_FOUND";
+        case REMATCH_ERR_NOT_PLAYER:      return "NOT_PLAYER";
+        case REMATCH_ERR_NOT_FINISHED:    return "NOT_FINISHED";
+        case REMATCH_ERR_ALREADY_VOTED:   return "ALREADY_PENDING";
+        case REMATCH_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
+        case REMATCH_ERR_OPPONENT_BUSY:   return "OPPONENT_BUSY";
+        default:                          return "NOT_FOUND"; // REMATCH_WAITING/STARTED never reach here
     }
 }
 

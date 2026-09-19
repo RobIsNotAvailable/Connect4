@@ -382,6 +382,9 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
                 registry.games[i].state = GAME_PLAYING;
                 registry.games[i].player2_sock = joiner_sock;
                 registry.games[i].turn = 1; // player 1 (the owner) moves first
+                // A new round: votes left over from a previous game in this room don't count.
+                registry.games[i].owner_wants_rematch = 0;
+                registry.games[i].player2_wants_rematch = 0;
             }
             registry.games[i].pending_joiner_sock = -1;
             result = RESOLVE_OK;
@@ -469,6 +472,69 @@ MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Ga
         }
 
         *out_game = registry.games[i];
+    }
+
+    pthread_mutex_unlock(&registry.mutex);
+
+    return result;
+}
+
+RematchResult game_registry_rematch(int game_id, int sock, Game *out_game)
+{
+    RematchResult result = REMATCH_ERR_NOT_FOUND;
+
+    pthread_mutex_lock(&registry.mutex);
+
+    if (game_id_is_valid(game_id))
+    {
+        Game *g = &registry.games[game_id - 1];
+        int is_owner = (g->owner_sock == sock);
+        int *my_vote = is_owner ? &g->owner_wants_rematch : &g->player2_wants_rematch;
+        int *opponent_vote = is_owner ? &g->player2_wants_rematch : &g->owner_wants_rematch;
+        int opponent_sock = is_owner ? g->player2_sock : g->owner_sock;
+
+        if (!is_owner && g->player2_sock != sock)
+        {
+            result = REMATCH_ERR_NOT_PLAYER;
+        }
+        else if (g->state != GAME_FINISHED)
+        {
+            result = REMATCH_ERR_NOT_FINISHED;
+        }
+        else if (*my_vote)
+        {
+            result = REMATCH_ERR_ALREADY_VOTED;
+        }
+        else if (is_playing(sock))
+        {
+            // This game is FINISHED, so it doesn't count: this is another one.
+            result = REMATCH_ERR_ALREADY_PLAYING;
+        }
+        else if (!*opponent_vote)
+        {
+            *my_vote = 1;
+            result = REMATCH_WAITING;
+        }
+        else if (is_playing(opponent_sock))
+        {
+            // The opponent voted yes and then started another game (nothing
+            // stops a client leaving the finished game's pop-up behind). Same
+            // reasoning as RESOLVE_ERR_JOINER_BUSY: no two matches at once.
+            *opponent_vote = 0;
+            result = REMATCH_ERR_OPPONENT_BUSY;
+        }
+        else
+        {
+            g->state = GAME_PLAYING;
+            board_init(&g->board);
+            g->turn = 1; // player 1 (the owner) moves first
+            g->winner = 0;
+            g->owner_wants_rematch = 0;
+            g->player2_wants_rematch = 0;
+            result = REMATCH_STARTED;
+        }
+
+        *out_game = *g;
     }
 
     pthread_mutex_unlock(&registry.mutex);

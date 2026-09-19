@@ -30,6 +30,11 @@ typedef struct
     Board board;
     int turn;   // 1 or 2: who moves next. Unused (left at 0) while WAITING
     int winner; // valid only once state == GAME_FINISHED: 1, 2, or 0 for a draw
+    // Rematch votes (docs/protocol.md §7): meaningful only while
+    // state == GAME_FINISHED. Both are cleared whenever a game starts, so a
+    // vote never outlives the game it was cast for.
+    int owner_wants_rematch;
+    int player2_wants_rematch;
 } Game;
 
 // Outcomes of game_create(), used by the caller to pick which ERROR code
@@ -75,6 +80,20 @@ typedef enum
     MOVE_ERR_INVALID_COLUMN,
     MOVE_ERR_COLUMN_FULL
 } MoveResult;
+
+// Outcomes of game_registry_rematch(). The first two are successes: the
+// caller picks what to send from which one it got.
+typedef enum
+{
+    REMATCH_WAITING,             // vote recorded, the opponent has not voted yet
+    REMATCH_STARTED,             // both players want it: the game restarted
+    REMATCH_ERR_NOT_FOUND,
+    REMATCH_ERR_NOT_PLAYER,
+    REMATCH_ERR_NOT_FINISHED,
+    REMATCH_ERR_ALREADY_VOTED,   // this player already asked for the rematch
+    REMATCH_ERR_ALREADY_PLAYING, // this player is playing another game
+    REMATCH_ERR_OPPONENT_BUSY    // the opponent said yes but is now playing another game
+} RematchResult;
 
 // What happened to one game because a client left it, and which
 // notification(s) the caller needs to send because of it (docs/protocol.md
@@ -166,5 +185,16 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
 // the game's state after the call (needed by the caller to build
 // GAME_STATE).
 MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Game *out_game);
+
+// Records that 'sock' wants a rematch of the FINISHED game 'game_id'
+// (docs/protocol.md §7). When both players have asked, the game restarts in
+// place: PLAYING, empty board, player 1 to move, votes cleared. Like an
+// accepted join, that must not put a client in two PLAYING games at once,
+// so the check is made here under the same lock; on REMATCH_ERR_OPPONENT_BUSY
+// the opponent's earlier vote is dropped too, since it is out of date, and
+// 'sock's is not recorded. 'out_game' is filled with the game's state after
+// the call (needed by the caller to know who to notify), for every result
+// except NOT_FOUND, where it is left untouched.
+RematchResult game_registry_rematch(int game_id, int sock, Game *out_game);
 
 #endif

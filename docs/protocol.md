@@ -77,7 +77,7 @@ ERROR <comando> <codice>
 | `NOT_FOUND`       | Nessuna partita con quell'id                                 |
 | `NOT_WAITING`     | La partita non è in attesa di giocatori                      |
 | `SELF_JOIN`       | Il client ha chiesto di unirsi alla propria partita          |
-| `ALREADY_PENDING` | C'è già una richiesta (di accesso o di rivincita) in attesa  |
+| `ALREADY_PENDING` | C'è già una richiesta di accesso in attesa, o il mittente ha già chiesto la rivincita |
 | `NOT_OWNER`       | Solo il creatore della partita può eseguire questa azione    |
 | `NO_PENDING`      | Non c'è nessuna richiesta da accettare/rifiutare             |
 | `ALREADY_PLAYING` | Il client sta già giocando un'altra partita                  |
@@ -88,6 +88,7 @@ ERROR <comando> <codice>
 | `INVALID_COLUMN`  | Colonna fuori dall'intervallo 0–6                            |
 | `COLUMN_FULL`     | La colonna è già piena                                       |
 | `NOT_FINISHED`    | La partita non è ancora terminata                            |
+| `OPPONENT_BUSY`   | L'avversario ha votato per la rivincita ma sta giocando altrove |
 
 ## 2. Connessione
 
@@ -311,7 +312,8 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
   altre), ma può **giocarne una sola alla volta**. Una richiesta che lo
   porterebbe in una seconda partita in corso riceve `ALREADY_PLAYING`:
   - `JOIN_GAME` inviato da chi sta già giocando;
-  - `JOIN_RESPONSE ... 1` inviato da un creatore che sta già giocando altrove.
+  - `JOIN_RESPONSE ... 1` inviato da un creatore che sta già giocando altrove;
+  - `REMATCH` inviato da chi sta già giocando un'altra partita.
 - Chi ha fatto una richiesta di accesso non è impegnato finché il creatore non
   accetta, quindi può averne in attesa in più partite. Se uno dei creatori
   accetta quando chi chiedeva sta già giocando un'altra partita (per esempio
@@ -320,6 +322,9 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
   0` e la partita resta in attesa di altri giocatori. Succede anche se chi
   chiedeva ha iniziato a giocare accettando lui stesso la richiesta di un altro
   nella partita che aveva creato.
+- Lo stesso vale per la rivincita (§7): se chi ha votato per primo inizia
+  un'altra partita, quando l'avversario vota il server risponde
+  `OPPONENT_BUSY` e scarta il voto vecchio.
 
 ### 5.2 Formato della griglia
 
@@ -417,8 +422,8 @@ Il vincitore riceve `WIN` e l'avversario `LOSE`; in caso di pareggio entrambi
 ricevono `DRAW`. È sempre preceduto dal `GAME_STATE` finale, così il client
 può mostrare la mossa decisiva.
 
-Da questo momento la partita è **terminata** e i due giocatori sono liberi di
-giocare altre partite.
+Da questo momento la partita è **terminata**: i due giocatori possono chiedere
+la rivincita o lasciare la partita (§7), e sono liberi di giocare altre partite.
 
 ## 6. Notifiche agli altri client
 
@@ -447,8 +452,9 @@ Esempio: `NEW_GAME 7 Sfida_1 Player1`
 GAME_IN_PROGRESS <game_id>
 ```
 
-La partita è in corso e non è più possibile unirsi. Inviato anche quando
-riparte con una rivincita.
+La partita è in corso e non è più possibile unirsi. Non viene inviato quando
+riparte con una rivincita: gli altri client hanno già ricevuto `GAME_CLOSED`
+alla fine della partita precedente, quindi non ce l'hanno in lista.
 
 ### `GAME_CLOSED` (server → altri client)
 
@@ -463,34 +469,54 @@ può tornare in lista con `NEW_GAME` se uno dei due giocatori esce.
 
 ## 7. Rivincita e uscita
 
-Dopo `GAME_OVER` i due giocatori possono giocare di nuovo nella stessa
-partita. La rivincita segue lo stesso schema dell'accesso: una richiesta,
-una notifica, una risposta, un esito.
+Dopo `GAME_OVER` ognuno dei due giocatori sceglie tra due cose: chiedere la
+rivincita (`REMATCH`) o lasciare la partita (`LEAVE_GAME`). Un client può
+mostrare a entrambi una finestra con questi due pulsanti.
+
+La rivincita è un voto e non ha una parte che propone e una che risponde: si
+gioca di nuovo solo se la vogliono **entrambi**, in qualsiasi ordine.
 
 ```
 giocatore A            server                 giocatore B
-  |  REMATCH_REQUEST 7   |                       |
+  |  REMATCH 7           |                       |
   |--------------------->|  REMATCH_NOTIFY 7     |
   |                      |---------------------->|
-  |                      |  REMATCH_RESPONSE 7 1 |
-  |  REMATCH_RESULT 7 1  |<----------------------|
-  |<---------------------|                       |
-  |  GAME_START ...      |  GAME_START ...       |
-  |  GAME_STATE ...      |  GAME_STATE ...       |
+  |                      |           REMATCH 7   |
+  |  GAME_START ...      |<----------------------|
+  |  GAME_STATE ...      |  GAME_START ...       |
+  |<---------------------|  GAME_STATE ...       |
+  |                      |---------------------->|
 ```
 
-### `REMATCH_REQUEST` (client → server)
+### `REMATCH` (client → server)
 
 ```
-REMATCH_REQUEST <game_id>
+REMATCH <game_id>
 ```
 
-Proposta di rivincita, inviabile da uno dei due giocatori a partita
+Il mittente vuole rigiocare. Vale per entrambi i giocatori, a partita
 terminata.
 
+- Se l'avversario non ha ancora votato, il server non risponde al mittente e
+  manda all'avversario `REMATCH_NOTIFY`. Il voto non si ritira: per
+  rinunciare si esce con `LEAVE_GAME`.
+- Se l'avversario aveva già votato, la partita riparte: la griglia viene
+  svuotata, la partita torna in corso e il giocatore 1 muove per primo.
+  Entrambi ricevono `GAME_START` e `GAME_STATE`, come quando un accesso viene
+  accettato. Gli altri client non ricevono niente: sono già stati avvisati con
+  `GAME_CLOSED` quando la partita è finita (§6).
+
+Chi ha votato riceve quindi una risposta solo quando la partita riparte o c'è
+un errore.
+
 Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER`, `NOT_FINISHED`,
-`ALREADY_PENDING` (anche quando l'avversario ha già proposto la rivincita: in
-quel caso basta rispondere al suo `REMATCH_NOTIFY`), `ALREADY_PLAYING`.
+`ALREADY_PENDING` (il mittente ha già votato), `ALREADY_PLAYING` (il mittente
+sta giocando un'altra partita, §5.1), `OPPONENT_BUSY` (l'avversario aveva
+votato ma nel frattempo ha iniziato un'altra partita: il suo voto viene
+scartato e quello del mittente non viene registrato).
+
+Se un giocatore esce (`LEAVE_GAME` o disconnessione) la partita torna in
+attesa (§8), i voti non valgono più e `REMATCH` dà `NOT_FINISHED`.
 
 ### `REMATCH_NOTIFY` (server → avversario)
 
@@ -498,27 +524,10 @@ quel caso basta rispondere al suo `REMATCH_NOTIFY`), `ALREADY_PLAYING`.
 REMATCH_NOTIFY <game_id>
 ```
 
-### `REMATCH_RESPONSE` (client → server)
+L'avversario ha chiesto la rivincita. Il destinatario può accettare con
+`REMATCH` o rifiutare con `LEAVE_GAME`.
 
-```
-REMATCH_RESPONSE <game_id> <accepted>
-```
-
-`<accepted>` vale `1` per accettare, `0` per rifiutare.
-
-- **Accettata:** la griglia viene svuotata, la partita torna in corso, il
-  giocatore 1 muove per primo. Entrambi ricevono `GAME_START` e `GAME_STATE`,
-  gli altri client `GAME_IN_PROGRESS`.
-- **Rifiutata:** la partita viene eliminata.
-
-Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER`, `NO_PENDING`,
-`ALREADY_PLAYING`.
-
-### `REMATCH_RESULT` (server → chi ha proposto)
-
-```
-REMATCH_RESULT <game_id> <accepted>
-```
+Esempio: `REMATCH_NOTIFY 7`
 
 ### `LEAVE_GAME` (client → server)
 
