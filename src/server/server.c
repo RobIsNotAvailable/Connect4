@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -15,6 +16,7 @@
 // one handle_* per command (which may call an *_error_code translator).
 // Keeping only signatures here lets the definitions further down read
 // top-down, starting from main().
+static void handle_stop_signal(int sig);
 static void *client_handler(void *sock_id);
 static void dispatch_command(int client_sock, Client *me, char *line);
 static void handle_set_username(int client_sock, Client *me, int argc, char *argv[]);
@@ -89,6 +91,25 @@ int main()
         return -1;
     }
 
+    // Problem: the default action of SIGTERM (what `docker stop` sends) and
+    // SIGINT (Ctrl-C) is to kill the process, but the first process of a
+    // container (PID 1) is special: the kernel ignores the signals it has no
+    // handler for. The server would then not stop on `docker stop`, which
+    // waits 10 seconds and finally kills it with SIGKILL. With a handler
+    // installed the signal is delivered like for any other process.
+    // sigaction() is used instead of signal() because its behaviour is fully
+    // specified by POSIX (signal() varies between systems).
+    struct sigaction stop_action;
+    memset(&stop_action, 0, sizeof(stop_action));
+    stop_action.sa_handler = handle_stop_signal;
+    sigemptyset(&stop_action.sa_mask);
+    if (sigaction(SIGTERM, &stop_action, NULL) < 0 || sigaction(SIGINT, &stop_action, NULL) < 0)
+    {
+        perror("Sigaction error");
+        close(server_sock);
+        return -1;
+    }
+
     printf("=== SERVER STARTED ON PORT %d ===\n", PORT);
 
     while (1)
@@ -117,6 +138,24 @@ int main()
 
     close(server_sock);
     return 0;
+}
+
+// SIGTERM / SIGINT: the server stops at once. Why not set a flag and let the
+// accept() loop in main() notice it? The process has many threads and the
+// signal may be delivered to any of them, so main()'s accept() is not sure to
+// be interrupted, and a signal arriving just before accept() would leave it
+// blocked until the next client. There is also nothing to clean up: all the
+// state is in memory, and when the process ends the kernel closes every socket
+// (each client sees its connection closed). Only async-signal-safe functions
+// may run in a handler: write() and _exit() are, while printf() and exit()
+// are not (they could deadlock on a lock that the interrupted code holds).
+static void handle_stop_signal(int sig)
+{
+    (void)sig;
+    static const char msg[] = "\n=== SERVER STOPPING ===\n";
+    ssize_t written = write(STDOUT_FILENO, msg, sizeof(msg) - 1);
+    (void)written;
+    _exit(0);
 }
 
 static void *client_handler(void *sock_id)
