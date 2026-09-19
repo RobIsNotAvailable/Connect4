@@ -1,23 +1,5 @@
 """REMATCH / REMATCH_NOTIFY (docs/protocol.md §7): the two-player vote."""
-from harness import Server, check, finish
-
-EMPTY = "." * 42
-
-
-def play_win(owner, other, room):
-    """The owner (player 1) wins with a vertical four in column 0. The room
-    must be PLAYING and it must be the owner's turn."""
-    for _ in range(3):
-        owner.send(f"MOVE {room} 0")
-        other.send(f"MOVE {room} 1")
-    owner.send(f"MOVE {room} 0")
-    return owner.take("GAME_OVER"), other.take("GAME_OVER")
-
-
-def start(owner, joiner, room):
-    joiner.send(f"JOIN_GAME {room}")
-    owner.send(f"JOIN_RESPONSE {room} 1")
-
+from harness import EMPTY_BOARD as EMPTY, Server, check, finish, play_win, start_game as start
 
 with Server() as srv:
     a, b, c, d = srv.client(), srv.client(), srv.client(), srv.client()

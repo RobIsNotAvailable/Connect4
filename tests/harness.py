@@ -40,6 +40,7 @@ class Client:
         self.s.settimeout(0.15)
         self.buf = b""
         self.lines = []
+        self.closed = False  # True once the server has closed the connection
         self.pump()
 
     def pump(self):
@@ -48,16 +49,26 @@ class Client:
             while True:
                 d = self.s.recv(4096)
                 if not d:
+                    self.closed = True
                     break
                 self.buf += d
         except socket.timeout:
             pass
+        except ConnectionResetError:
+            self.closed = True
         while b"\n" in self.buf:
             line, self.buf = self.buf.split(b"\n", 1)
             self.lines.append(line.decode())
 
     def send(self, line):
         self.s.sendall((line + "\n").encode())
+        time.sleep(0.03)
+        self.pump()
+
+    def send_raw(self, data):
+        """Sends exactly these bytes (no '\\n' added), for what send() cannot
+        express: '\\r\\n', half a line, several lines at once, non-ASCII."""
+        self.s.sendall(data)
         time.sleep(0.03)
         self.pump()
 
@@ -114,9 +125,15 @@ class Server:
                     sys.exit("the server did not start listening on port %d" % PORT)
                 time.sleep(0.05)
 
-    def client(self):
+    def client(self, name=None):
+        """A new connection. With a 'name' it has already chosen that username
+        and nothing is left unread; without one it is exactly as the server
+        greets a new client (WELCOME pending, no username)."""
         c = Client()
         self.clients.append(c)
+        if name is not None:
+            c.send("SET_USERNAME " + name)
+            assert c.take_all()[-1:] == ["USERNAME_SET " + name], "could not set username " + name
         return c
 
     def __exit__(self, *exc):
@@ -128,6 +145,26 @@ class Server:
             c.close()
         self.proc.terminate()
         self.proc.wait()
+
+
+EMPTY_BOARD = "." * 42
+
+
+def start_game(owner, joiner, room):
+    """The joiner asks, the owner accepts: the game starts."""
+    joiner.send(f"JOIN_GAME {room}")
+    owner.send(f"JOIN_RESPONSE {room} 1")
+
+
+def play_win(owner, other, room):
+    """The owner (player 1) wins with a vertical four in column 0. The room
+    must be PLAYING and it must be the owner's turn. Returns both GAME_OVER
+    lines (owner's, other's)."""
+    for _ in range(3):
+        owner.send(f"MOVE {room} 0")
+        other.send(f"MOVE {room} 1")
+    owner.send(f"MOVE {room} 0")
+    return owner.take("GAME_OVER"), other.take("GAME_OVER")
 
 
 def check(label, got, want):
