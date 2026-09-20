@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/socket.h>
 #include "client_registry.h"
 #include "net.h"
 
@@ -173,6 +174,20 @@ int client_send_line(int sock, const char *fmt, ...)
         va_start(args, fmt);
         result = vsend_line(sock, fmt, args);
         va_end(args);
+
+        if (result == -1)
+        {
+            // The peer is gone, or it stopped reading and the send timed out
+            // (client_handler sets the timeout). Either way the stream to it
+            // is no good any more: a half-written line would corrupt it. Cut
+            // the connection: the handler thread of that client, blocked in
+            // recv(), sees the end and runs the normal disconnect. shutdown()
+            // rather than close(): the fd belongs to the handler, and closing
+            // it here could hand its number to a new connection.
+            // (Every line the server sends fits in MAX_LINE, so -1 is never
+            // a line that was too long.)
+            shutdown(sock, SHUT_RDWR);
+        }
     }
 
     pthread_mutex_unlock(&clients.send_mutexes[slot]);

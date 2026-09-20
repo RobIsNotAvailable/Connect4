@@ -4,12 +4,32 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/socket.h>
+#include <sys/time.h>
 #include <pthread.h>
 #include "board.h"
 #include "client_registry.h"
 #include "game_registry.h"
 #include "net.h"
 #include "protocol.h"
+
+// How long a send() to a client may stay blocked (its buffers full because
+// it does not read) before the server gives up on it. See client_handler.
+// A client that reads its socket never gets near the limit: its buffers hold
+// far more than the few bytes of a line.
+#define SEND_TIMEOUT_SEC 2
+
+// Held while a command is handled and while a disconnect is applied, from the
+// change to the registries to the last notification about it. Problem: each
+// registry has its own lock, but the notifications are sent after it is
+// released. Two threads changing the same game could then apply their changes
+// in one order and send the notifications in the other (both players of a
+// game hang up together: the room is deleted, GAME_CLOSED goes out, and then
+// the NEW_GAME of the first hang-up arrives: the lobby shows a room that no
+// longer exists). With this lock the notifications follow the order of the
+// changes. Lock order: command_mutex, then a client's send mutex, then the
+// registries' own; nothing takes command_mutex while holding those.
+static pthread_mutex_t command_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Forward declarations of every function defined below, in the order
 // main() reaches them: main -> client_handler -> dispatch_command ->
@@ -175,6 +195,19 @@ static void *client_handler(void *sock_id)
 
     printf("[SERVER] New client connected on socket %d, assigned id=%d\n", client_sock, me.id);
 
+    // Problem: a client that stops reading (hung, or a debugger on it) fills
+    // its socket buffers, and from then on every send() to it blocks - with
+    // that client's send mutex held. Any thread that has to notify it (a
+    // broadcast, from any other client's handler) then waits behind it for
+    // good, so one stuck client freezes everyone who creates, joins or plays.
+    // With a send timeout the blocked send() fails after SEND_TIMEOUT_SEC,
+    // and client_send_line drops the client (see there).
+    struct timeval send_timeout = { .tv_sec = SEND_TIMEOUT_SEC, .tv_usec = 0 };
+    if (setsockopt(client_sock, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout)) < 0)
+    {
+        perror("[SERVER] Setsockopt SO_SNDTIMEO error"); // not fatal: this client just keeps blocking sends
+    }
+
     client_send_line(client_sock, "WELCOME %d", me.id);
 
     LineReader reader;
@@ -184,7 +217,9 @@ static void *client_handler(void *sock_id)
 
     while ((comm_status = recv_line(&reader, line)) == LINE_OK)
     {
+        pthread_mutex_lock(&command_mutex);
         dispatch_command(client_sock, &me, line);
+        pthread_mutex_unlock(&command_mutex);
     }
 
     if (comm_status == LINE_CLOSED)
@@ -204,7 +239,9 @@ static void *client_handler(void *sock_id)
     }
 
     client_list_remove(me.id);
+    pthread_mutex_lock(&command_mutex);
     handle_disconnect(client_sock);
+    pthread_mutex_unlock(&command_mutex);
     close(client_sock);
     pthread_exit(NULL);
 }
@@ -539,8 +576,10 @@ static const char *join_set_error_code(JoinSetResult r)
 static void handle_join_response(int client_sock, const Client *me, int argc, char *argv[])
 {
     int game_id, accepted;
-    if (argc != 3 || !parse_int(argv[1], &game_id) || !parse_int(argv[2], &accepted))
+    if (argc != 3 || !parse_int(argv[1], &game_id) || !parse_int(argv[2], &accepted) ||
+        (accepted != 0 && accepted != 1))
     {
+        // docs/protocol.md §4: <accepted> is 0 or 1, nothing else counts as "yes"
         client_send_line(client_sock, "ERROR JOIN_RESPONSE BAD_ARGS");
         return;
     }

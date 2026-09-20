@@ -59,9 +59,10 @@ int vsend_line(int sock, const char *fmt, va_list args) __attribute__((format(pr
 // tokens were found (0 for a blank line).
 int split_args(char *line, char *argv[], int max_args);
 
-// Parses 's' as a base-10 integer with nothing left over: unlike plain
-// strtol/atoi, rejects "", " " and "12abc" instead of silently accepting a
-// prefix. Returns 1 and fills 'out' on success, 0 otherwise. Used to turn
+// Parses 's' as a base-10 integer written the way docs/protocol.md §1.3 says
+// (optional '-', no '+', no leading zeros) with nothing left over: unlike
+// plain strtol/atoi, rejects "", " ", "12abc", "+3" and "03" instead of
+// silently accepting them. Returns 1 and fills 'out' on success, 0 otherwise. Used to turn
 // a BAD_ARGS case (non-numeric argument) into an actual protocol error
 // instead of silently treating garbage as 0.
 int parse_int(const char *s, int *out);

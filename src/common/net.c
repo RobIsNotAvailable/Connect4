@@ -184,9 +184,21 @@ int split_args(char *line, char *argv[], int max_args)
 
 int parse_int(const char *s, int *out)
 {
-    if (s == NULL || *s == '\0')
+    if (s == NULL)
     {
         return 0;
+    }
+
+    // docs/protocol.md §1.3: an optional '-', then digits with no leading
+    // zero. strtol alone would also take "+3", "03", "-0" and leading spaces.
+    const char *digits = (*s == '-') ? s + 1 : s;
+    if (*digits < '0' || *digits > '9')
+    {
+        return 0; // "", "-", "+3", " 3", "--3"
+    }
+    if (*digits == '0' && (digits != s || digits[1] != '\0'))
+    {
+        return 0; // "03", "-0", "-03": only a lone "0" may start with a zero
     }
 
     char *end;

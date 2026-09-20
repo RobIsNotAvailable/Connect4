@@ -24,6 +24,15 @@ with Server() as srv:
     check("three lines in one send get three answers", a.take_all(),
           ["GAME_LIST 0", "GAME_LIST 0", "ERROR - UNKNOWN_COMMAND"])
 
+    # numbers (§1.3): decimal integers, no '+', no leading zeros, and they must fit
+    # in an int. JOIN_GAME tells them apart: a number is a room that does not exist
+    # (NOT_FOUND), anything else is BAD_ARGS.
+    for n in ("0", "1", "-1", "255", "2147483647", "-2147483648"):
+        check(f"a number: {n}", a.ask(f"JOIN_GAME {n}", "ERROR"), "ERROR JOIN_GAME NOT_FOUND")
+    for n in ("+1", "01", "007", "00", "-0", "-01", "+", "-", "--1", "1.5", "0x10", "1e3",
+              "2147483648", "-2147483649", "4294967296", "99999999999999999999"):
+        check(f"not a number: {n}", a.ask(f"JOIN_GAME {n}", "ERROR"), "ERROR JOIN_GAME BAD_ARGS")
+
     # a line can be 1024 bytes including the '\n'; one byte more and the server hangs up
     a.send_raw(b"X" * 1023 + b"\n")
     check("1024-byte line is accepted", a.take_all(), ["ERROR - UNKNOWN_COMMAND"])
