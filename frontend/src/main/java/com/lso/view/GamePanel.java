@@ -75,7 +75,12 @@ public class GamePanel extends JPanel
         boardView.repaint();
     }
 
-    private class BoardView extends JPanel 
+    public void showWaitingForRematch()
+    {
+        statusLabel.setText("Waiting for the opponent's rematch...");
+    }
+
+    private class BoardView extends JPanel
     {
         public BoardView() 
         {

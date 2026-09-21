@@ -152,15 +152,7 @@ public class MainController
                 break;
 
             case "GAME_OVER":
-                String result = parts[2];
-                javax.swing.JOptionPane.showMessageDialog(
-                    mainFrame,
-                    "Game finished! Result: " + result,
-                    "Game Over",
-                    javax.swing.JOptionPane.INFORMATION_MESSAGE
-                );
-                showScreen("Lobby");
-                sendMessage("LIST_GAMES");
+                askRematch(parts[1], parts[2]);
                 break;
 
             case "ERROR":
@@ -201,6 +193,50 @@ public class MainController
         }
 
         sendMessage("SET_USERNAME " + name.trim());
+    }
+
+    // The room survives the end of the game, so the player has to choose:
+    // vote for a rematch (it starts only if the opponent votes too) or leave
+    // the room. Closing the dialog counts as leaving.
+    private void askRematch(String gameId, String result)
+    {
+        String message;
+        if(result.equals("WIN"))
+        {
+            message = "You won!";
+        }
+        else if(result.equals("LOSE"))
+        {
+            message = "You lost.";
+        }
+        else
+        {
+            message = "It's a draw.";
+        }
+
+        Object[] options = {"Rematch", "Leave room"};
+        int choice = javax.swing.JOptionPane.showOptionDialog(
+            mainFrame,
+            message,
+            "Game Over",
+            javax.swing.JOptionPane.DEFAULT_OPTION,
+            javax.swing.JOptionPane.INFORMATION_MESSAGE,
+            null,
+            options,
+            options[0]
+        );
+
+        if(choice == 0)
+        {
+            sendMessage("REMATCH " + gameId);
+            gamePanel.showWaitingForRematch();
+        }
+        else
+        {
+            sendMessage("LEAVE_GAME " + gameId);
+            showScreen("Lobby");
+            sendMessage("LIST_GAMES");
+        }
     }
 
     public void sendMessage(String msg)
