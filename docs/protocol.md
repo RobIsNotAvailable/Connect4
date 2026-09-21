@@ -82,6 +82,9 @@ ERROR <comando> <codice>
 | `NO_PENDING`      | Non c'è nessuna richiesta da accettare/rifiutare             |
 | `NOT_PLAYER`      | Il client non è uno dei due giocatori di quella partita      |
 | `NOT_PLAYING`     | La partita non è in corso                                    |
+| `NOT_ACTIVE`      | La partita non è la partita attiva del client (§5.3)         |
+| `TOO_MANY_MATCHES`| Il client gioca già il numero massimo di partite (5, §5.1)   |
+| `JOINER_FULL`     | Chi chiedeva di entrare ha raggiunto quel numero nel frattempo |
 | `NOT_YOUR_TURN`   | Non è il turno del mittente                                  |
 | `INVALID_COLUMN`  | Colonna fuori dall'intervallo 0–6                            |
 | `COLUMN_FULL`     | La colonna è già piena                                       |
@@ -262,7 +265,8 @@ Chiede di unirsi alla partita indicata. Il joiner **non** riceve una risposta
 immediata: l'esito arriva con `JOIN_RESULT` quando il creatore decide.
 
 Errori possibili (inviati subito al joiner):
-`BAD_ARGS`, `NOT_FOUND`, `NOT_WAITING`, `SELF_JOIN`, `ALREADY_PENDING`.
+`BAD_ARGS`, `NOT_FOUND`, `NOT_WAITING`, `SELF_JOIN`, `ALREADY_PENDING`,
+`TOO_MANY_MATCHES` (il joiner gioca già il numero massimo di partite, §5.1).
 
 ### `JOIN_NOTIFY` (server → owner)
 
@@ -285,7 +289,11 @@ JOIN_RESPONSE <game_id> <accepted>
 Se accettata, la partita passa in corso. Se rifiutata, resta in attesa e può
 ricevere nuove richieste.
 
-Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`.
+Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`,
+`TOO_MANY_MATCHES` (il creatore gioca già il numero massimo di partite: la
+richiesta resta in attesa, può rifiutarla o accettarla dopo aver lasciato una
+partita), `JOINER_FULL` (chi chiedeva ha raggiunto quel numero dopo aver
+chiesto: la richiesta viene annullata e lui riceve `JOIN_RESULT <game_id> 0`).
 
 ### `JOIN_RESULT` (server → joiner)
 
@@ -306,7 +314,14 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
   a 3, e farsi accettare in altre. Ciascuna può essere in corso, e il server
   non pone limiti al numero di partite in corso di un client: chiedere di
   entrare, accettare una richiesta e votare la rivincita valgono anche a chi
-  sta già giocando altrove.
+  sta già giocando altrove. Attivamente però se ne gioca una sola alla volta:
+  la partita attiva (§5.3).
+- Le partite in corso di un client sono al massimo **5** (`MAX_MATCHES_PER_PLAYER`):
+  contano quelle di cui è un giocatore e che hanno un avversario, in corso o
+  terminate (una partita terminata conta finché il giocatore non la lascia).
+  Oltre il limite, chiedere di entrare dà `TOO_MANY_MATCHES`; accettare una
+  richiesta lo dà al creatore, e `JOINER_FULL` se è il joiner ad aver
+  raggiunto il limite nel frattempo. La rivincita non cambia il numero.
 - Le partite di uno stesso client sono indipendenti. Ogni messaggio che le
   riguarda (`MOVE`, `GAME_STATE`, `GAME_OVER`...) porta l'id della sua partita
   e arriva solo ai due giocatori di quella partita, quindi il client sa a
@@ -346,6 +361,104 @@ diventa il token
 ```
 
 (35 punti, poi `...12..`).
+
+### 5.3 Partita attiva
+
+Un client può essere in più partite, ma ne **gioca attivamente una sola alla
+volta**: la sua *partita attiva*. `MOVE` è accettata solo in quella; le altre
+restano sospese, con griglia e turno com'erano, finché il client non le rende
+attive.
+
+- Alla connessione nessuna partita è attiva.
+- Quando una partita inizia (un accesso accettato o una rivincita) diventa la
+  partita attiva di ciascun giocatore che non ne ha una in corso, cioè che non
+  ne ha nessuna o la cui partita attiva è terminata. Chi sta giocando un'altra
+  partita la mantiene. Un client che gioca una partita per volta non deve
+  quindi mandare niente: la sua partita è già attiva.
+- Il client cambia partita attiva con `SET_ACTIVE_GAME`. Una partita terminata
+  resta attiva finché il giocatore non ne sceglie un'altra o non esce.
+- Quando un giocatore esce da una partita (`LEAVE_GAME` o disconnessione),
+  quella non è più la partita attiva né sua né di chi resta: per chi resta la
+  stanza è tornata in attesa (§8).
+
+### `SET_ACTIVE_GAME` (client → server)
+
+```
+SET_ACTIVE_GAME <game_id>
+```
+
+Rende attiva la partita indicata. `<game_id>` deve essere una partita di cui il
+mittente è il creatore o il secondo giocatore (non una in cui ha solo una
+richiesta in attesa) e che non sia in attesa di un avversario; una partita
+terminata va bene. `0` toglie la partita attiva.
+
+Se va a buon fine il server **non risponde**: lo mostra la `MOVE` successiva.
+
+Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER`, `NOT_PLAYING` (la
+partita è in attesa di un avversario).
+
+### `OPPONENT_STATUS` (server → giocatore)
+
+```
+OPPONENT_STATUS <game_id> <status>
+```
+
+Dice se l'avversario di una partita la sta guardando. `<status>` è:
+
+- `HERE`: la partita attiva dell'avversario è questa;
+- `AWAY`: la sua partita attiva è un'altra oppure non ne ha nessuna: è nella
+  lobby o sta giocando altrove, in ogni caso in questa non muoverà finché non
+  torna.
+
+Il client non deve chiedere niente: fino a nuovo avviso lo stato di una
+partita è `HERE`, e il server manda `OPPONENT_STATUS` solo quando cambia.
+`GAME_START` riporta lo stato a `HERE`, anche per una rivincita: se
+l'avversario sta già giocando un'altra partita, l'`AWAY` arriva subito dopo il
+`GAME_STATE` iniziale. Chi gioca una partita per volta non riceve mai questo
+messaggio, a meno che l'avversario non lasci la partita attiva (§5.3).
+
+Lo stato dipende solo da `SET_ACTIVE_GAME`, dall'avvio di una partita e
+dall'uscita da una partita (§5.3): una partita finita ancora aperta conta come
+partita attiva finché il giocatore non ne sceglie un'altra o esce.
+
+### `LIST_MY_MATCHES` (client → server)
+
+```
+LIST_MY_MATCHES
+```
+
+Chiede l'elenco delle partite che il mittente sta giocando (§5.1), come
+creatore o come secondo giocatore, in corso o terminate. Le stanze in attesa
+di un avversario non ci sono: si trovano con `LIST_MY_GAMES` (§3), che elenca
+le stanze possedute in qualunque stato ma senza avversario.
+
+Risposta: `MY_MATCH_LIST`.
+
+### `MY_MATCH_LIST` (server → client)
+
+```
+MY_MATCH_LIST <count> [<game_id> <name> <opponent> <my_player> <state> <turn> <status>]...
+```
+
+Dopo `<count>` seguono esattamente `<count>` gruppi di 7 token, in ordine di
+id crescente:
+
+- `<name>`: il nome della stanza; `<opponent>`: lo username dell'avversario;
+- `<my_player>`: `1` o `2`, il numero del mittente in quella partita;
+- `<state>`: `PLAYING` oppure `FINISHED`;
+- `<turn>`: chi deve muovere (`1` o `2`), come in `GAME_STATE`; `0` se la
+  partita è terminata;
+- `<status>`: `HERE` o `AWAY` per l'avversario, come in
+  `OPPONENT_STATUS`.
+
+`<count>` va da 0 a 5, quindi la riga non viene mai troncata.
+
+Esempi:
+
+```
+MY_MATCH_LIST 0
+MY_MATCH_LIST 2 3 Sfida_1 Bruno 1 PLAYING 2 HERE 7 Rivincita! Carla 2 FINISHED 0 AWAY
+```
 
 ### `GAME_START` (server → entrambi i giocatori)
 
@@ -388,7 +501,9 @@ Se la mossa è valida, il server risponde a entrambi con `GAME_STATE` e, se la
 partita è finita, con `GAME_OVER`.
 
 Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER`, `NOT_PLAYING`,
-`NOT_YOUR_TURN`, `INVALID_COLUMN`, `COLUMN_FULL`.
+`NOT_ACTIVE` (non è la partita attiva del mittente, §5.3), `NOT_YOUR_TURN`,
+`INVALID_COLUMN`, `COLUMN_FULL`. Se più di una condizione è vera, l'errore è il
+primo di questo elenco.
 
 ### `GAME_OVER` (server → ciascun giocatore)
 

@@ -7,25 +7,32 @@ import javax.swing.JLabel;
 import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import com.lso.GameSession;
 import com.lso.MainController;
 
 public class GamePanel extends JPanel
 {
+    // How long a notification stays on screen.
+    public static final int NOTIFICATION_MILLIS = 6000;
+
     private JLabel player1Label;
     private JLabel player2Label;
     private BoardView boardView;
-    private String currentBoard = "..........................................";
-    private int currentGameId = -1;
-    private int myPlayer = 0;
-    // Whose turn it is: 1, 2, or 0 when the game is over.
-    private int turn = 0;
-    private JButton leaveBtn;
+    // The game on screen. All the state (board, turn, names) is in it; the
+    // panel only draws it and turns the clicks into messages.
+    private GameSession session;
+    private JButton homeBtn;
+    private JButton abandonBtn;
+    private JLabel awayLabel;
+    private JLabel notificationLabel;
+    private javax.swing.Timer notificationTimer;
 
     public GamePanel(MainController controller)
     {
@@ -49,22 +56,32 @@ public class GamePanel extends JPanel
         }
         showTurn(1);
 
-        // Even margins, unlike the other buttons, so the text sits on the
-        // same line as the names.
-        leaveBtn = UiUtil.createStyledButton("Leave");
-        leaveBtn.setMargin(new Insets(12, 15, 12, 15));
-        UiUtil.addListener(leaveBtn, e ->
+        // Home leaves the board and keeps the game, which waits as it is;
+        // Abandon gives it up. Even margins, unlike the other buttons, so the
+        // text sits on the same line as the names.
+        homeBtn = UiUtil.createStyledButton("Home");
+        homeBtn.setMargin(new Insets(12, 15, 12, 15));
+        UiUtil.addListener(homeBtn, e -> controller.goHome());
+
+        abandonBtn = UiUtil.createStyledButton("Abandon");
+        abandonBtn.setMargin(new Insets(12, 15, 12, 15));
+        UiUtil.addListener(abandonBtn, e ->
         {
-            if(currentGameId != -1)
+            if(session != null)
             {
-                controller.askLeaveGame(String.valueOf(currentGameId));
+                controller.askAbandonGame(session.getId());
             }
         });
 
-        // GridBagLayout keeps the button at its own size, centred in the cell.
+        // GridBagLayout keeps the buttons at their own size, side by side and
+        // centred in the cell.
+        GridBagConstraints between = new GridBagConstraints();
+        between.insets = new Insets(0, 5, 0, 5);
+
         JPanel middle = new JPanel(new GridBagLayout());
         middle.setOpaque(false);
-        middle.add(leaveBtn);
+        middle.add(homeBtn, between);
+        middle.add(abandonBtn, between);
 
         // A bar of its own, lighter than the background and closed by a line,
         // so the players are visibly separated from the board. Three equal
@@ -76,7 +93,22 @@ public class GamePanel extends JPanel
         header.add(player1Label);
         header.add(middle);
         header.add(player2Label);
-        add(header, BorderLayout.NORTH);
+
+        // Under the bar: it says when the opponent is not in this game (he went
+        // to the lobby, or to another game), so the player knows why nothing
+        // happens. It is always there, blank when there is nothing to say, so
+        // the board does not change size when it appears.
+        awayLabel = UiUtil.createStyledLabel(" ");
+        awayLabel.setFont(awayLabel.getFont().deriveFont(16f));
+        awayLabel.setForeground(UiUtil.BACKGROUND_BLACK);
+        awayLabel.setBackground(UiUtil.ACCENT);
+        awayLabel.setBorder(BorderFactory.createEmptyBorder(5, 20, 5, 20));
+
+        JPanel top = new JPanel(new BorderLayout());
+        top.setOpaque(false);
+        top.add(header, BorderLayout.NORTH);
+        top.add(awayLabel, BorderLayout.SOUTH);
+        add(top, BorderLayout.NORTH);
 
         boardView = new BoardView();
         add(boardView, BorderLayout.CENTER);
@@ -94,40 +126,91 @@ public class GamePanel extends JPanel
             {
                 // The keys 1-7 also work while an overlay is open, so this
                 // check is also what stops a move after the game is over
-                if (canPlay(col))
+                if (session != null && session.canPlay(col))
                 {
-                    controller.sendMessage("MOVE " + currentGameId + " " + col);
+                    controller.sendMessage("MOVE " + session.getId() + " " + col);
                 }
             });
             controlsPanel.add(btn);
         }
-        add(controlsPanel, BorderLayout.SOUTH);
+
+        // Above the column buttons: what happens in the games that are not on
+        // screen. Blank when there is nothing to say, like the strip on top, so
+        // the board keeps its size.
+        notificationLabel = UiUtil.createStyledLabel(" ");
+        notificationLabel.setFont(notificationLabel.getFont().deriveFont(16f));
+        notificationLabel.setForeground(Color.WHITE);
+        notificationLabel.setBackground(UiUtil.ACCENT_SECONDARY);
+        notificationLabel.setBorder(BorderFactory.createEmptyBorder(5, 20, 5, 20));
+
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.setOpaque(false);
+        bottom.add(notificationLabel, BorderLayout.NORTH);
+        bottom.add(controlsPanel, BorderLayout.CENTER);
+        add(bottom, BorderLayout.SOUTH);
     }
 
-    public void setupGame(int gameId, int myPlayer, String myName, String opponent)
+    public void show(GameSession session)
     {
-        this.currentGameId = gameId;
-        this.myPlayer = myPlayer;
-        this.turn = 1;
-        player1Label.setText(myPlayer == 1 ? myName : opponent);
-        player2Label.setText(myPlayer == 2 ? myName : opponent);
-        showTurn(1);
+        this.session = session;
+        clearNotification();
+        refresh();
     }
 
-    public void updateState(int turn, String boardStr)
+    // A message about a game that is not on screen. It goes away by itself:
+    // it is not worth a box that stops the game the player is looking at.
+    public void showNotification(String text)
     {
-        this.currentBoard = boardStr;
-        this.turn = turn;
-        showTurn(turn);
+        notificationLabel.setText(text);
+        notificationLabel.setOpaque(true);
+        notificationLabel.repaint();
+
+        if(notificationTimer != null)
+        {
+            notificationTimer.stop();
+        }
+        notificationTimer = new javax.swing.Timer(NOTIFICATION_MILLIS, e -> clearNotification());
+        notificationTimer.setRepeats(false);
+        notificationTimer.start();
+    }
+
+    private void clearNotification()
+    {
+        if(notificationTimer != null)
+        {
+            notificationTimer.stop();
+        }
+        notificationLabel.setText(" ");
+        notificationLabel.setOpaque(false);
+        notificationLabel.repaint();
+    }
+
+    // How many of the other games are waiting for the player's move: a
+    // counter on the Home button, which is the way to them. Unlike the
+    // notifications it stays, so it is not missed.
+    public void setOtherGamesWaiting(int count)
+    {
+        homeBtn.setText(count > 0 ? "Home (" + count + ")" : "Home");
+    }
+
+    // Draws the game on screen again: call it when that game changed.
+    public void refresh()
+    {
+        if(session == null)
+        {
+            return;
+        }
+
+        player1Label.setText(session.getPlayerName(1));
+        player2Label.setText(session.getPlayerName(2));
+        showTurn(session.getTurn());
+
+        boolean away = session.isOpponentAway();
+        awayLabel.setOpaque(away);
+        awayLabel.setText(away ? session.getOpponent() + " is away from this game" : " ");
+        awayLabel.repaint();
+
         boardView.repaint();
-    }
-
-    // Only on our turn and in a column that still has room: the server would
-    // refuse anything else with an error. The top row is row 0, so a column
-    // is full when its first cell is taken.
-    private boolean canPlay(int col)
-    {
-        return currentGameId != -1 && turn == myPlayer && currentBoard.charAt(col) == '.';
     }
 
     // The player on turn is at full brightness and the other one is dimmed.
@@ -164,6 +247,8 @@ public class GamePanel extends JPanel
             Graphics2D g2d = (Graphics2D) g;
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
+            String board = (session != null) ? session.getBoard() : GameSession.EMPTY_BOARD;
+
             int cellWidth = getWidth() / 7;
             int cellHeight = getHeight() / 6;
             int diameter = Math.min(cellWidth, cellHeight) - 10;
@@ -175,7 +260,7 @@ public class GamePanel extends JPanel
                     int x = col * cellWidth + (cellWidth - diameter) / 2;
                     int y = row * cellHeight + (cellHeight - diameter) / 2;
 
-                    char cell = currentBoard.charAt(row * 7 + col);
+                    char cell = board.charAt(row * 7 + col);
                     if (cell == '1') 
                     {
                         g2d.setColor(UiUtil.ERROR_RED); 

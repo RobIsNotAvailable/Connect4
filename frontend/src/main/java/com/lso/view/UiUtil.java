@@ -275,6 +275,23 @@ public class UiUtil
         {
             setModel(new javax.swing.table.DefaultTableModel(data, columnNames));
         }
+
+        // A column that is only there for the code (an id): it stays in the
+        // model, so its values can be read, but it is not shown. The columns
+        // are kept when the data is replaced (setData), otherwise a new model
+        // would bring the hidden one back.
+        public void hideColumn(int modelColumn)
+        {
+            setAutoCreateColumnsFromModel(false);
+            removeColumn(getColumnModel().getColumn(convertColumnIndexToView(modelColumn)));
+        }
+
+        // Reads the model, not the view: unlike getValueAt it does not depend
+        // on which columns are hidden.
+        public Object getCellValue(int row, int modelColumn)
+        {
+            return getModel().getValueAt(row, modelColumn);
+        }
     }
 
     public static class TransparentScrollPanel extends JScrollPane

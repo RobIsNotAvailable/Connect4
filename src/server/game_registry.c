@@ -11,6 +11,7 @@ static void leave_game_slot(int index, int sock, LeaveEvent *event);
 static void free_slot(int index);
 static int game_id_is_valid(int game_id);
 static int count_owned_games(int sock);
+static int count_matches(int sock);
 
 // Thread-safe registry of games, mirroring ClientList (see
 // client_registry.c): a slot map indexed directly by id (games[id - 1] IS
@@ -96,6 +97,25 @@ static int count_owned_games(int sock)
     return n;
 }
 
+// Returns how many games 'sock' is a player of (owner or player2) that have an
+// opponent, i.e. PLAYING or FINISHED. Caller must hold registry.mutex. Same
+// bounded full scan as count_owned_games.
+static int count_matches(int sock)
+{
+    int n = 0;
+
+    for (int i = 0; i < registry.next_id - 1; i++)
+    {
+        const Game *g = &registry.games[i];
+        if ((g->state == GAME_PLAYING || g->state == GAME_FINISHED) &&
+            (g->owner_sock == sock || g->player2_sock == sock))
+        {
+            n++;
+        }
+    }
+    return n;
+}
+
 // A single client can be involved (as owner, pending joiner, or player2)
 // in several games at once - it can own up to MAX_GAMES_PER_OWNER of them,
 // and nothing stops holding more than one pending join request
@@ -123,6 +143,7 @@ int game_registry_handle_disconnect(int sock, LeaveEvent *events)
             events[n].type = LEAVE_JOIN_CANCELLED;
             events[n].game_id = registry.games[i].id;
             events[n].notify_sock = registry.games[i].owner_sock;
+            events[n].other_sock = -1;
             n++;
             registry.games[i].pending_joiner_sock = -1;
         }
@@ -183,6 +204,7 @@ static void leave_game_slot(int index, int sock, LeaveEvent *event)
     event->game_id = g->id;
     strncpy(event->name, g->name, ROOM_NAME_LEN);
     event->notify_sock = -1;
+    event->other_sock = remaining_sock;
 
     if (remaining_sock == -1 || (owner_left && count_owned_games(remaining_sock) >= MAX_GAMES_PER_OWNER))
     {
@@ -295,6 +317,10 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
         {
             result = JOIN_ERR_ALREADY_PENDING;
         }
+        else if (count_matches(joiner_sock) >= MAX_MATCHES_PER_PLAYER)
+        {
+            result = JOIN_ERR_TOO_MANY_MATCHES;
+        }
         else
         {
             registry.games[i].pending_joiner_sock = joiner_sock;
@@ -339,6 +365,19 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         {
             result = RESOLVE_ERR_NO_PENDING;
         }
+        else if (accepted && count_matches(owner_sock) >= MAX_MATCHES_PER_PLAYER)
+        {
+            result = RESOLVE_ERR_TOO_MANY_MATCHES;
+        }
+        else if (accepted && count_matches(joiner_sock) >= MAX_MATCHES_PER_PLAYER)
+        {
+            // set_pending only checked the joiner when the request was made,
+            // and a client can have requests pending in several games:
+            // others may have been accepted since. The request is cancelled
+            // - the game stays WAITING for someone else.
+            registry.games[i].pending_joiner_sock = -1;
+            result = RESOLVE_ERR_JOINER_FULL;
+        }
         else
         {
             if (accepted)
@@ -355,7 +394,7 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         }
 
         *out_game = registry.games[i];
-        if (result == RESOLVE_OK)
+        if (result == RESOLVE_OK || result == RESOLVE_ERR_JOINER_FULL)
         {
             // pending_joiner_sock was just cleared above, but the caller
             // still needs to know who to notify with JOIN_RESULT.
@@ -368,7 +407,7 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
     return result;
 }
 
-MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Game *out_game)
+MoveResult game_registry_apply_move(int game_id, int player_sock, int column, int is_active, Game *out_game)
 {
     MoveResult result = MOVE_ERR_NOT_FOUND;
 
@@ -395,6 +434,10 @@ MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Ga
         else if (registry.games[i].state != GAME_PLAYING)
         {
             result = MOVE_ERR_NOT_PLAYING;
+        }
+        else if (!is_active)
+        {
+            result = MOVE_ERR_NOT_ACTIVE;
         }
         else if (registry.games[i].turn != player)
         {
@@ -485,6 +528,80 @@ RematchResult game_registry_rematch(int game_id, int sock, Game *out_game)
         }
 
         *out_game = *g;
+    }
+
+    pthread_mutex_unlock(&registry.mutex);
+
+    return result;
+}
+
+int game_registry_list_matches(int sock, MatchInfo *out, int max)
+{
+    int n = 0;
+
+    pthread_mutex_lock(&registry.mutex);
+
+    for (int i = 0; i < registry.next_id - 1 && n < max; i++)
+    {
+        const Game *g = &registry.games[i];
+        if ((g->state == GAME_PLAYING || g->state == GAME_FINISHED) &&
+            (g->owner_sock == sock || g->player2_sock == sock))
+        {
+            int is_owner = (g->owner_sock == sock);
+
+            out[n].game_id = g->id;
+            strncpy(out[n].name, g->name, ROOM_NAME_LEN);
+            out[n].opponent_sock = is_owner ? g->player2_sock : g->owner_sock;
+            out[n].my_player = is_owner ? 1 : 2;
+            out[n].state = g->state;
+            out[n].turn = g->turn;
+            n++;
+        }
+    }
+
+    pthread_mutex_unlock(&registry.mutex);
+
+    return n;
+}
+
+RoomState game_registry_state(int game_id)
+{
+    RoomState state = GAME_EMPTY;
+
+    pthread_mutex_lock(&registry.mutex);
+
+    if (game_id_is_valid(game_id))
+    {
+        state = registry.games[game_id - 1].state;
+    }
+
+    pthread_mutex_unlock(&registry.mutex);
+
+    return state;
+}
+
+ActivateResult game_registry_check_activate(int game_id, int sock)
+{
+    ActivateResult result = ACTIVATE_ERR_NOT_FOUND;
+
+    pthread_mutex_lock(&registry.mutex);
+
+    if (game_id_is_valid(game_id))
+    {
+        const Game *g = &registry.games[game_id - 1];
+
+        if (g->owner_sock != sock && g->player2_sock != sock)
+        {
+            result = ACTIVATE_ERR_NOT_PLAYER;
+        }
+        else if (g->state == GAME_WAITING)
+        {
+            result = ACTIVATE_ERR_NOT_PLAYING;
+        }
+        else
+        {
+            result = ACTIVATE_OK;
+        }
     }
 
     pthread_mutex_unlock(&registry.mutex);

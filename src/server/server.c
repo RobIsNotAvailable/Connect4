@@ -50,6 +50,7 @@ static void handle_rematch(int client_sock, const Client *me, int argc, char *ar
 static const char *rematch_error_code(RematchResult r);
 static void handle_list_games(int client_sock);
 static void handle_list_my_games(int client_sock);
+static void handle_list_my_matches(int client_sock);
 static const char *room_state_name(RoomState s);
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *join_set_error_code(JoinSetResult r);
@@ -58,6 +59,13 @@ static const char *resolve_error_code(ResolveResult r);
 static void send_game_start(const Game *g);
 static void send_game_state(const Game *g);
 static void handle_move(int client_sock, const Client *me, int argc, char *argv[]);
+static void handle_set_active_game(int client_sock, const Client *me, int argc, char *argv[]);
+static const char *activate_error_code(ActivateResult r);
+static void activate_if_idle(int sock, int game_id);
+static int is_away(int sock, int game_id);
+static void announce_presence(int sock, int old_active, int new_active, int skip_game);
+static void set_active_game(int sock, int game_id);
+static void clear_active_game(int sock, int game_id);
 static void send_game_over(const Game *g);
 static const char *move_error_code(MoveResult r);
 static void handle_disconnect(int client_sock);
@@ -266,6 +274,16 @@ static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n
         int game_id = events[i].game_id;
         int notify_sock = events[i].notify_sock;
 
+        // The game is over for whoever left, and no longer being played for
+        // the one who stays (it is WAITING again, or gone): neither has it as
+        // active game any more. A leaver that disconnected is not there to
+        // clear, which is fine.
+        if (events[i].type != LEAVE_JOIN_CANCELLED)
+        {
+            clear_active_game(leaver_sock, game_id);
+            clear_active_game(events[i].other_sock, game_id);
+        }
+
         switch (events[i].type)
         {
             case LEAVE_JOIN_CANCELLED:
@@ -334,6 +352,10 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     {
         handle_list_my_games(client_sock);
     }
+    else if (strcmp(cmd, "LIST_MY_MATCHES") == 0)
+    {
+        handle_list_my_matches(client_sock);
+    }
     else if (strcmp(cmd, "JOIN_GAME") == 0)
     {
         handle_join_game(client_sock, me, argc, argv);
@@ -345,6 +367,10 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     else if (strcmp(cmd, "MOVE") == 0)
     {
         handle_move(client_sock, me, argc, argv);
+    }
+    else if (strcmp(cmd, "SET_ACTIVE_GAME") == 0)
+    {
+        handle_set_active_game(client_sock, me, argc, argv);
     }
     else if (strcmp(cmd, "LEAVE_GAME") == 0)
     {
@@ -529,6 +555,40 @@ static const char *room_state_name(RoomState s)
     }
 }
 
+// LIST_MY_MATCHES: the games the sender plays, with their opponent
+// (docs/protocol.md §5.3). No truncation to handle here either: a client has
+// at most MAX_MATCHES_PER_PLAYER of them. The entries are written first and
+// counted as they go, because an opponent that disconnected since the registry
+// was read has no username left and its game is about to be closed: it is left
+// out, and 'count' stays right.
+static void handle_list_my_matches(int client_sock)
+{
+    MatchInfo matches[MAX_MATCHES_PER_PLAYER];
+    int n = game_registry_list_matches(client_sock, matches, MAX_MATCHES_PER_PLAYER);
+
+    char entries[MAX_MATCHES_PER_PLAYER * 96];
+    size_t len = 0;
+    int count = 0;
+    entries[0] = '\0';
+
+    for (int i = 0; i < n; i++)
+    {
+        char opponent[USERNAME_LEN];
+        if (!client_list_find_username(matches[i].opponent_sock, opponent))
+        {
+            continue;
+        }
+
+        len += snprintf(entries + len, sizeof(entries) - len, " %d %s %s %d %s %d %s",
+                        matches[i].game_id, matches[i].name, opponent, matches[i].my_player,
+                        room_state_name(matches[i].state), matches[i].turn,
+                        is_away(matches[i].opponent_sock, matches[i].game_id) ? "AWAY" : "HERE");
+        count++;
+    }
+
+    client_send_line(client_sock, "MY_MATCH_LIST %d%s", count, entries);
+}
+
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[])
 {
     int game_id;
@@ -568,6 +628,7 @@ static const char *join_set_error_code(JoinSetResult r)
         case JOIN_ERR_NOT_WAITING:     return "NOT_WAITING";
         case JOIN_ERR_SELF_JOIN:       return "SELF_JOIN";
         case JOIN_ERR_ALREADY_PENDING: return "ALREADY_PENDING";
+        case JOIN_ERR_TOO_MANY_MATCHES: return "TOO_MANY_MATCHES";
         default:                       return "NOT_FOUND"; // JOIN_OK never reaches here
     }
 }
@@ -603,6 +664,13 @@ static void handle_join_response(int client_sock, const Client *me, int argc, ch
         return;
     }
 
+    if (rr == RESOLVE_ERR_JOINER_FULL)
+    {
+        // The request is over, as if the owner had refused it: the joiner
+        // has to be told (the owner gets the error below).
+        client_send_line(g.pending_joiner_sock, "JOIN_RESULT %d 0", game_id);
+    }
+
     const char *code = resolve_error_code(rr);
     printf("[SERVER] [%s] Join response for game %d rejected: %s\n", me->username, game_id, code);
     client_send_line(client_sock, "ERROR JOIN_RESPONSE %s", code);
@@ -617,6 +685,8 @@ static const char *resolve_error_code(ResolveResult r)
         case RESOLVE_ERR_NOT_FOUND:  return "NOT_FOUND";
         case RESOLVE_ERR_NOT_OWNER:  return "NOT_OWNER";
         case RESOLVE_ERR_NO_PENDING: return "NO_PENDING";
+        case RESOLVE_ERR_TOO_MANY_MATCHES: return "TOO_MANY_MATCHES";
+        case RESOLVE_ERR_JOINER_FULL: return "JOINER_FULL";
         default:                     return "NOT_FOUND"; // RESOLVE_OK never reaches here
     }
 }
@@ -640,10 +710,33 @@ static void send_game_start(const Game *g)
         return;
     }
 
+    // Before anything is sent: the player can answer GAME_START with a MOVE at
+    // once, and it must find the game active.
+    int owner_was_active = client_list_get_active_game(g->owner_sock);
+    int player2_was_active = client_list_get_active_game(g->player2_sock);
+    activate_if_idle(g->owner_sock, g->id);
+    activate_if_idle(g->player2_sock, g->id);
+
     client_send_line(g->owner_sock, "GAME_START %d 1 %s", g->id, player2_username);
     client_send_line(g->player2_sock, "GAME_START %d 2 %s", g->id, owner_username);
 
     send_game_state(g);
+
+    // Presence. The activation above may have changed what the opponents of
+    // the two players' other games see. For this game GAME_START means HERE
+    // (on a rematch too, whatever was said before), so the only thing worth
+    // telling is a player that is AWAY, because it was already playing
+    // another game.
+    announce_presence(g->owner_sock, owner_was_active, client_list_get_active_game(g->owner_sock), g->id);
+    announce_presence(g->player2_sock, player2_was_active, client_list_get_active_game(g->player2_sock), g->id);
+    if (is_away(g->owner_sock, g->id))
+    {
+        client_send_line(g->player2_sock, "OPPONENT_STATUS %d AWAY", g->id);
+    }
+    if (is_away(g->player2_sock, g->id))
+    {
+        client_send_line(g->owner_sock, "OPPONENT_STATUS %d AWAY", g->id);
+    }
 }
 
 // Sends GAME_STATE (the board and whose turn it is) to both players of
@@ -665,8 +758,13 @@ static void handle_move(int client_sock, const Client *me, int argc, char *argv[
         return;
     }
 
+    // The active game lives in the client registry, so it is looked up here and
+    // handed to the registry, which puts the check in its place among the
+    // others (docs/protocol.md §5.3).
+    int is_active = (client_list_get_active_game(client_sock) == game_id);
+
     Game g;
-    MoveResult mr = game_registry_apply_move(game_id, client_sock, column, &g);
+    MoveResult mr = game_registry_apply_move(game_id, client_sock, column, is_active, &g);
 
     if (mr == MOVE_OK)
     {
@@ -806,9 +904,122 @@ static const char *move_error_code(MoveResult r)
         case MOVE_ERR_NOT_FOUND:      return "NOT_FOUND";
         case MOVE_ERR_NOT_PLAYER:     return "NOT_PLAYER";
         case MOVE_ERR_NOT_PLAYING:    return "NOT_PLAYING";
+        case MOVE_ERR_NOT_ACTIVE:     return "NOT_ACTIVE";
         case MOVE_ERR_NOT_YOUR_TURN:  return "NOT_YOUR_TURN";
         case MOVE_ERR_INVALID_COLUMN: return "INVALID_COLUMN";
         case MOVE_ERR_COLUMN_FULL:    return "COLUMN_FULL";
         default:                      return "NOT_FOUND"; // MOVE_OK never reaches here
+    }
+}
+
+// SET_ACTIVE_GAME: the sender chooses which of its games it is playing right
+// now (docs/protocol.md §5.3). 0 means none. A success gets no reply: the
+// next MOVE shows it, and an error says why it did not work.
+static void handle_set_active_game(int client_sock, const Client *me, int argc, char *argv[])
+{
+    int game_id;
+    if (argc != 2 || !parse_int(argv[1], &game_id))
+    {
+        client_send_line(client_sock, "ERROR SET_ACTIVE_GAME BAD_ARGS");
+        return;
+    }
+
+    if (game_id != 0)
+    {
+        ActivateResult ar = game_registry_check_activate(game_id, client_sock);
+        if (ar != ACTIVATE_OK)
+        {
+            const char *code = activate_error_code(ar);
+            printf("[SERVER] [%s] Active game %d rejected: %s\n", me->username, game_id, code);
+            client_send_line(client_sock, "ERROR SET_ACTIVE_GAME %s", code);
+            return;
+        }
+    }
+
+    set_active_game(client_sock, game_id);
+}
+
+static const char *activate_error_code(ActivateResult r)
+{
+    switch (r)
+    {
+        case ACTIVATE_ERR_NOT_FOUND:   return "NOT_FOUND";
+        case ACTIVATE_ERR_NOT_PLAYER:  return "NOT_PLAYER";
+        case ACTIVATE_ERR_NOT_PLAYING: return "NOT_PLAYING";
+        default:                       return "NOT_FOUND"; // ACTIVATE_OK never reaches here
+    }
+}
+
+// A game that starts becomes the active game of a player who has none, or
+// whose active game is no longer being played (it finished): that player has
+// nothing else to be busy with. A player in the middle of another game keeps
+// it and switches on its own with SET_ACTIVE_GAME. This is what lets a client
+// that plays one game at a time never hear of SET_ACTIVE_GAME.
+static void activate_if_idle(int sock, int game_id)
+{
+    int current = client_list_get_active_game(sock);
+
+    if (current != game_id && (current == 0 || game_registry_state(current) != GAME_PLAYING))
+    {
+        client_list_set_active_game(sock, game_id);
+    }
+}
+
+// 1 if the active game of 'sock' is not 'game_id': the player is in the lobby
+// or in another game, so it is not looking at this one and whoever plays
+// 'game_id' against it is told it is AWAY (docs/protocol.md §5.3). Being in
+// 'game_id' itself is HERE.
+static int is_away(int sock, int game_id)
+{
+    return client_list_get_active_game(sock) != game_id;
+}
+
+// The active game of 'sock' went from 'old_active' to 'new_active': tells the
+// opponent in each of its games whose status changed because of it
+// (OPPONENT_STATUS). Nothing is sent to the ones that see no difference. The
+// game 'skip_game' is left out: a game that has just started is handled by
+// send_game_start.
+static void announce_presence(int sock, int old_active, int new_active, int skip_game)
+{
+    MatchInfo matches[MAX_MATCHES_PER_PLAYER];
+    int n = game_registry_list_matches(sock, matches, MAX_MATCHES_PER_PLAYER);
+
+    for (int i = 0; i < n; i++)
+    {
+        int id = matches[i].game_id;
+        if (id == skip_game)
+        {
+            continue;
+        }
+
+        int was_away = (old_active != id);
+        int now_away = (new_active != id);
+        if (was_away != now_away)
+        {
+            client_send_line(matches[i].opponent_sock, "OPPONENT_STATUS %d %s",
+                             id, now_away ? "AWAY" : "HERE");
+        }
+    }
+}
+
+// Changes the active game of 'sock' and tells the opponents affected.
+static void set_active_game(int sock, int game_id)
+{
+    int old_active = client_list_get_active_game(sock);
+
+    if (old_active != game_id)
+    {
+        client_list_set_active_game(sock, game_id);
+        announce_presence(sock, old_active, game_id, 0);
+    }
+}
+
+// The active game of 'sock' is 'game_id' no more (it left it, or it is gone):
+// none is active, if that was the one.
+static void clear_active_game(int sock, int game_id)
+{
+    if (client_list_get_active_game(sock) == game_id)
+    {
+        set_active_game(sock, 0);
     }
 }

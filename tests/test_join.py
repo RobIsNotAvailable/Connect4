@@ -1,5 +1,5 @@
 """JOIN_GAME, JOIN_NOTIFY, JOIN_RESPONSE, JOIN_RESULT (docs/protocol.md §4) and
-and §5.1: a client can be in several games at once."""
+§5.1: a client can be in several games at once."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, finish, start_game
 
 
@@ -111,13 +111,14 @@ with Server() as srv:
     d.send(f"JOIN_RESPONSE {r2} 1")
     check("...and it gets in", b.take_all(),
           [f"JOIN_RESULT {r2} 1", f"GAME_START {r2} 2 Dario", f"GAME_STATE {r2} 1 {EMPTY}"])
-    check("...the owner starts r2 as player 1", d.take_all(), [f"GAME_START {r2} 1 Bruno", f"GAME_STATE {r2} 1 {EMPTY}"])
+    check("...the owner starts r2 as player 1, and is told Bruno is elsewhere (he is playing r1)", d.take_all(),
+          [f"GAME_START {r2} 1 Bruno", f"GAME_STATE {r2} 1 {EMPTY}", f"OPPONENT_STATUS {r2} AWAY"])
     check("...the game it was already in is not told", a.take_all(), [f"GAME_IN_PROGRESS {r2}"])
     a.send(f"JOIN_GAME {r3}")
     check("the owner of a game in progress can ask too", d.take_all(), [f"JOIN_NOTIFY {r3} Anna"])
     d.send(f"JOIN_RESPONSE {r3} 1")
     check("an owner who is playing elsewhere can accept: it plays both games", d.take_all(),
-          [f"GAME_START {r3} 1 Anna", f"GAME_STATE {r3} 1 {EMPTY}"])
+          [f"GAME_START {r3} 1 Anna", f"GAME_STATE {r3} 1 {EMPTY}", f"OPPONENT_STATUS {r3} AWAY"])
 
 # The games of one client are independent: a move only reaches the two players of its game.
 with Server() as srv:
@@ -127,8 +128,8 @@ with Server() as srv:
     c.send(f"JOIN_GAME {r2}")
     drain(a, b, c)
     a.send(f"JOIN_RESPONSE {r2} 1")  # Anna is in the middle of r1
-    check("joiner: JOIN_RESULT, GAME_START as player 2", c.take_all(),
-          [f"JOIN_RESULT {r2} 1", f"GAME_START {r2} 2 Anna", f"GAME_STATE {r2} 1 {EMPTY}"])
+    check("joiner: JOIN_RESULT, GAME_START as player 2, and Anna is elsewhere (she is in r1)", c.take_all(),
+          [f"JOIN_RESULT {r2} 1", f"GAME_START {r2} 2 Anna", f"GAME_STATE {r2} 1 {EMPTY}", f"OPPONENT_STATUS {r2} AWAY"])
     check("owner: GAME_START as player 1 of the second game", a.take_all(),
           [f"GAME_START {r2} 1 Carla", f"GAME_STATE {r2} 1 {EMPTY}"])
     drain(b)
@@ -136,6 +137,8 @@ with Server() as srv:
     check("a move in r1: Anna and Bruno hear of it, Carla does not",
           (a.take_all(), b.take_all(), c.take_all()),
           ([f"GAME_STATE {r1} 2 {BOARD_1_COL0}"], [f"GAME_STATE {r1} 2 {BOARD_1_COL0}"], []))
+    a.send(f"SET_ACTIVE_GAME {r2}")  # she plays one game at a time: r1 was the active one
+    drain(b, c)  # the OPPONENT_STATUS lines of the switch are checked in test_matches.py
     a.send(f"MOVE {r2} 3")
     check("a move in r2: Anna and Carla hear of it, Bruno does not",
           (a.take_all(), b.take_all(), c.take_all()),

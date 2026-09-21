@@ -10,9 +10,11 @@
 // The public functions below are already declared in client_registry.h.
 // These are the private helpers defined in this file, forward-declared
 // here so each can be defined after its first caller: username_in_use after
-// client_list_set_username, find_client_by_sock after client_send_line.
+// client_list_set_username, find_client_by_sock after client_send_line,
+// client_by_sock_locked after client_list_find_username.
 static int username_in_use(const char *username);
 static int find_client_by_sock(int sock, int *out_id);
+static Client *client_by_sock_locked(int sock);
 
 // Thread-safe registry of currently connected clients. Fixed-size array
 // (no dynamic list) so add/remove don't need per-node malloc/free; a
@@ -278,4 +280,57 @@ int client_list_find_username(int sock, char *out)
     pthread_mutex_unlock(&clients.mutex);
 
     return found;
+}
+
+// Returns the client connected on 'sock', or NULL if there is none. The
+// caller must hold 'mutex' for as long as it uses the pointer: the slot can
+// be reassigned to another client as soon as the lock is released.
+static Client *client_by_sock_locked(int sock)
+{
+    for (int i = 0; i < clients.next_id - 1; i++)
+    {
+        if (clients.clients[i].id != 0 && clients.clients[i].sock == sock)
+        {
+            return &clients.clients[i];
+        }
+    }
+    return NULL;
+}
+
+int client_list_get_active_game(int sock)
+{
+    pthread_mutex_lock(&clients.mutex);
+
+    Client *client = client_by_sock_locked(sock);
+    int game_id = client ? client->active_game : 0;
+
+    pthread_mutex_unlock(&clients.mutex);
+
+    return game_id;
+}
+
+void client_list_set_active_game(int sock, int game_id)
+{
+    pthread_mutex_lock(&clients.mutex);
+
+    Client *client = client_by_sock_locked(sock);
+    if (client)
+    {
+        client->active_game = game_id;
+    }
+
+    pthread_mutex_unlock(&clients.mutex);
+}
+
+void client_list_clear_active_game(int sock, int game_id)
+{
+    pthread_mutex_lock(&clients.mutex);
+
+    Client *client = client_by_sock_locked(sock);
+    if (client && client->active_game == game_id)
+    {
+        client->active_game = 0;
+    }
+
+    pthread_mutex_unlock(&clients.mutex);
 }

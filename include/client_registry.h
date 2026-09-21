@@ -9,11 +9,18 @@
 // Bookkeeping for a single connected client: identity + its socket. The
 // username is empty ("") until the client picks one with SET_USERNAME
 // (docs/protocol.md §2), and never changes after that.
+//
+// active_game is the game the client is playing right now (docs/protocol.md
+// §5.3): 0 when it has none. A client can be in several games, but MOVE is only
+// accepted in the active one. Unlike the other fields it changes while the
+// client is connected and is read by other clients' handlers, so it is only
+// accessed through client_list_get/set/clear_active_game, which lock.
 typedef struct
 {
     int id;
     int sock;
     char username[USERNAME_LEN];
+    int active_game;
 } Client;
 
 // Outcomes of client_list_set_username(), used by the caller to pick which
@@ -53,6 +60,19 @@ int client_send_line(int sock, const char *fmt, ...) __attribute__((format(print
 // own owner/player2. Best-effort per recipient, like client_send_line: a
 // client that disconnects mid-broadcast is silently skipped.
 void client_broadcast_except(int except_sock1, int except_sock2, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
+
+// The active game of the client connected on 'sock', or 0 if it has none
+// (or if no client is connected on that socket).
+int client_list_get_active_game(int sock);
+
+// Makes 'game_id' the active game of the client connected on 'sock' (0 =
+// none). Does nothing if no client is connected on that socket.
+void client_list_set_active_game(int sock, int game_id);
+
+// Sets the active game of the client connected on 'sock' to 0, but only if it
+// is 'game_id': used when that game stops existing for the client (it left,
+// or the game was closed), without touching a different game it is playing.
+void client_list_clear_active_game(int sock, int game_id);
 
 // Looks up the username of the client owning the given socket. Returns 1
 // and fills 'out' if found, 0 otherwise (e.g. the client disconnected

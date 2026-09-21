@@ -69,7 +69,8 @@ with Server() as srv:
     start(d, c, x)
     a.take_all(); c.take_all(); d.take_all()
     a.send(f"REMATCH {r}")
-    check("game 5 starts (A)", a.take_all(), [f"GAME_START {r} 1 Carla", f"GAME_STATE {r} 1 {EMPTY}"])
+    check("game 5 starts (A), who is told that Carla is elsewhere (she plays x)", a.take_all(),
+          [f"GAME_START {r} 1 Carla", f"GAME_STATE {r} 1 {EMPTY}", f"OPPONENT_STATUS {r} AWAY"])
     check("game 5 starts (C), which is also playing x", c.take_all(), [f"GAME_START {r} 2 Anna", f"GAME_STATE {r} 1 {EMPTY}"])
     check("the other game is not touched", d.take_all(), [])
 
