@@ -101,15 +101,18 @@ with Server() as srv:
     check("room WAITING", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida WAITING")
     drain(a, b, c, d)
 
-    # 8. leaving lets a client play elsewhere (one game at a time, §5.1)
+    # 8. a client in a game can ask for another room (§5.1), before or after leaving
     x = d.ask("CREATE_GAME Altra", "GAME_CREATED").split()[1]
     start(c, b, r)
     drain(a, b, c, d)
-    check("B is playing: JOIN_GAME -> ALREADY_PLAYING", b.ask(f"JOIN_GAME {x}", "ERROR"), "ERROR JOIN_GAME ALREADY_PLAYING")
+    b.send(f"JOIN_GAME {x}")
+    check("B is playing r and asks for x: the owner is notified", d.take_all(), [f"JOIN_NOTIFY {x} Marco"])
+    d.send(f"JOIN_RESPONSE {x} 0")
+    drain(a, b, c, d)
     b.send(f"LEAVE_GAME {r}")
     drain(a, b, c, d)
     b.send(f"JOIN_GAME {x}")
-    check("B left, so it can ask again", d.take_all(), [f"JOIN_NOTIFY {x} Marco"])
+    check("B left r and asks again", d.take_all(), [f"JOIN_NOTIFY {x} Marco"])
     d.send(f"JOIN_RESPONSE {x} 0")
     d.send(f"LEAVE_GAME {x}")
     c.send(f"LEAVE_GAME {r}")

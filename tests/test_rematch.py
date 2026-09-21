@@ -64,23 +64,14 @@ with Server() as srv:
     check("A's old vote gone: C alone does not start it", c.take_all(), [])
     check("A is notified", a.take_all(), [f"REMATCH_NOTIFY {r}"])
 
-    # 7. C says yes and then goes to play elsewhere: no two matches at once
+    # 7. C says yes and then starts another game: several games at once are allowed, so A's vote starts the rematch
     x = d.ask("CREATE_GAME Altra", "GAME_CREATED").split()[1]
     start(d, c, x)
     a.take_all(); c.take_all(); d.take_all()
-    check("A: OPPONENT_BUSY", a.ask(f"REMATCH {r}", "ERROR"), "ERROR REMATCH OPPONENT_BUSY")
-    check("room r still FINISHED", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida FINISHED")
-    check("C is not dragged into r", c.take_all(), [])
-    check("C: ALREADY_PLAYING", c.ask(f"REMATCH {r}", "ERROR"), "ERROR REMATCH ALREADY_PLAYING")
-
-    # 8. C leaves x and is free again: its old vote was dropped, A's was never recorded
-    c.send(f"LEAVE_GAME {x}")
-    a.take_all(); c.take_all(); d.take_all()
     a.send(f"REMATCH {r}")
-    check("A's vote is recorded now, no start", a.take_all(), [])
-    check("C is notified (its own vote was dropped)", c.take_all(), [f"REMATCH_NOTIFY {r}"])
-    c.send(f"REMATCH {r}")
     check("game 5 starts (A)", a.take_all(), [f"GAME_START {r} 1 Carla", f"GAME_STATE {r} 1 {EMPTY}"])
-    check("game 5 starts (C)", c.take_all(), [f"GAME_START {r} 2 Anna", f"GAME_STATE {r} 1 {EMPTY}"])
+    check("game 5 starts (C), which is also playing x", c.take_all(), [f"GAME_START {r} 2 Anna", f"GAME_STATE {r} 1 {EMPTY}"])
+    check("the other game is not touched", d.take_all(), [])
+
 
 finish("test_rematch")

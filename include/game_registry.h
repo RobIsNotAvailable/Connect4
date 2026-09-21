@@ -54,8 +54,7 @@ typedef enum
     JOIN_ERR_NOT_FOUND,
     JOIN_ERR_NOT_WAITING,
     JOIN_ERR_SELF_JOIN,
-    JOIN_ERR_ALREADY_PENDING,
-    JOIN_ERR_ALREADY_PLAYING
+    JOIN_ERR_ALREADY_PENDING
 } JoinSetResult;
 
 // Outcomes of game_registry_resolve_join().
@@ -64,9 +63,7 @@ typedef enum
     RESOLVE_OK,
     RESOLVE_ERR_NOT_FOUND,
     RESOLVE_ERR_NOT_OWNER,
-    RESOLVE_ERR_NO_PENDING,
-    RESOLVE_ERR_ALREADY_PLAYING, // the owner is already playing another game
-    RESOLVE_ERR_JOINER_BUSY      // the joiner started playing another game since asking
+    RESOLVE_ERR_NO_PENDING
 } ResolveResult;
 
 // Outcomes of game_registry_apply_move().
@@ -90,9 +87,7 @@ typedef enum
     REMATCH_ERR_NOT_FOUND,
     REMATCH_ERR_NOT_PLAYER,
     REMATCH_ERR_NOT_FINISHED,
-    REMATCH_ERR_ALREADY_VOTED,   // this player already asked for the rematch
-    REMATCH_ERR_ALREADY_PLAYING, // this player is playing another game
-    REMATCH_ERR_OPPONENT_BUSY    // the opponent said yes but is now playing another game
+    REMATCH_ERR_ALREADY_VOTED    // this player already asked for the rematch
 } RematchResult;
 
 // What happened to one game because a client left it, and which
@@ -171,11 +166,7 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
 // reject: state stays WAITING, pending cleared. 'out_game' is filled with
 // the game's state after the call, with pending_joiner_sock always equal
 // to the joiner that was just resolved (accepted or not), so the caller
-// knows who to notify with JOIN_RESULT. The same holds for
-// RESOLVE_ERR_JOINER_BUSY, where the request is cancelled too: unlike
-// ALREADY_PLAYING (the owner has to try again later), a request from someone
-// who is busy elsewhere would otherwise sit there and block the game for
-// everybody else.
+// knows who to notify with JOIN_RESULT.
 ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game);
 
 // Validates and applies one MOVE (docs/protocol.md §5): checks the game
@@ -188,13 +179,10 @@ MoveResult game_registry_apply_move(int game_id, int player_sock, int column, Ga
 
 // Records that 'sock' wants a rematch of the FINISHED game 'game_id'
 // (docs/protocol.md §7). When both players have asked, the game restarts in
-// place: PLAYING, empty board, player 1 to move, votes cleared. Like an
-// accepted join, that must not put a client in two PLAYING games at once,
-// so the check is made here under the same lock; on REMATCH_ERR_OPPONENT_BUSY
-// the opponent's earlier vote is dropped too, since it is out of date, and
-// 'sock's is not recorded. 'out_game' is filled with the game's state after
-// the call (needed by the caller to know who to notify), for every result
-// except NOT_FOUND, where it is left untouched.
+// place: PLAYING, empty board, player 1 to move, votes cleared. 'out_game' is
+// filled with the game's state after the call (needed by the caller to know
+// who to notify), for every result except NOT_FOUND, where it is left
+// untouched.
 RematchResult game_registry_rematch(int game_id, int sock, Game *out_game);
 
 #endif

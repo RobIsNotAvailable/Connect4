@@ -1,5 +1,5 @@
 """JOIN_GAME, JOIN_NOTIFY, JOIN_RESPONSE, JOIN_RESULT (docs/protocol.md §4) and
-the rules of §5.1 on who can play (a client plays one game at a time)."""
+and §5.1: a client can be in several games at once."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, finish, start_game
 
 
@@ -95,57 +95,71 @@ with Server() as srv:
           ([f"GAME_IN_PROGRESS {room}"],) * 2)
 
 
-# ---------------------------------------------------------------- a client plays one game at a time (§5.1)
-# A joiner who is already playing.
+# ---------------------------------------------------------------- a client can be in several games at once (§5.1)
+BOARD_1_COL0 = "." * 35 + "1" + "." * 6  # player 1 dropped a disc in column 0
+BOARD_1_COL3 = "." * 38 + "1" + "." * 3  # player 1 dropped a disc in column 3
+
+# A client that is already playing can ask for another room, and get in.
 with Server() as srv:
     a, b, d = srv.client("Anna"), srv.client("Bruno"), srv.client("Dario")
     r1 = new_room(a, "Prima")
     start_game(a, b, r1)
-    r2 = new_room(d, "Seconda")
+    r2, r3 = new_room(d, "Seconda"), new_room(d, "Terza")
     drain(a, b, d)
-    check("joiner who is playing: ALREADY_PLAYING", b.ask(f"JOIN_GAME {r2}", "ERROR"), "ERROR JOIN_GAME ALREADY_PLAYING")
-    check("...also when it is the owner of the game it plays", a.ask(f"JOIN_GAME {r2}", "ERROR"), "ERROR JOIN_GAME ALREADY_PLAYING")
-    check("...and the room's owner heard nothing", d.take_all(), [])
+    b.send(f"JOIN_GAME {r2}")
+    check("joiner who is playing: the owner is notified", d.take_all(), [f"JOIN_NOTIFY {r2} Bruno"])
+    d.send(f"JOIN_RESPONSE {r2} 1")
+    check("...and it gets in", b.take_all(),
+          [f"JOIN_RESULT {r2} 1", f"GAME_START {r2} 2 Dario", f"GAME_STATE {r2} 1 {EMPTY}"])
+    check("...the owner starts r2 as player 1", d.take_all(), [f"GAME_START {r2} 1 Bruno", f"GAME_STATE {r2} 1 {EMPTY}"])
+    check("...the game it was already in is not told", a.take_all(), [f"GAME_IN_PROGRESS {r2}"])
+    a.send(f"JOIN_GAME {r3}")
+    check("the owner of a game in progress can ask too", d.take_all(), [f"JOIN_NOTIFY {r3} Anna"])
+    d.send(f"JOIN_RESPONSE {r3} 1")
+    check("an owner who is playing elsewhere can accept: it plays both games", d.take_all(),
+          [f"GAME_START {r3} 1 Anna", f"GAME_STATE {r3} 1 {EMPTY}"])
 
-# An owner who is playing elsewhere cannot accept; the request stays where it was.
+# The games of one client are independent: a move only reaches the two players of its game.
 with Server() as srv:
     a, b, c = srv.client("Anna"), srv.client("Bruno"), srv.client("Carla")
     r1, r2 = new_room(a, "Prima"), new_room(a, "Seconda")
-    c.send(f"JOIN_GAME {r1}")
-    start_game(a, b, r2)  # Anna is playing now
+    start_game(a, b, r1)
+    c.send(f"JOIN_GAME {r2}")
     drain(a, b, c)
-    check("owner playing elsewhere: ALREADY_PLAYING", a.ask(f"JOIN_RESPONSE {r1} 1", "ERROR"), "ERROR JOIN_RESPONSE ALREADY_PLAYING")
-    check("...the joiner is told nothing (the request is not consumed)", c.take_all(), [])
-    a.send(f"JOIN_RESPONSE {r1} 0")
-    check("...the owner can still refuse it", c.take_all(), [f"JOIN_RESULT {r1} 0"])
+    a.send(f"JOIN_RESPONSE {r2} 1")  # Anna is in the middle of r1
+    check("joiner: JOIN_RESULT, GAME_START as player 2", c.take_all(),
+          [f"JOIN_RESULT {r2} 1", f"GAME_START {r2} 2 Anna", f"GAME_STATE {r2} 1 {EMPTY}"])
+    check("owner: GAME_START as player 1 of the second game", a.take_all(),
+          [f"GAME_START {r2} 1 Carla", f"GAME_STATE {r2} 1 {EMPTY}"])
+    drain(b)
+    a.send(f"MOVE {r1} 0")
+    check("a move in r1: Anna and Bruno hear of it, Carla does not",
+          (a.take_all(), b.take_all(), c.take_all()),
+          ([f"GAME_STATE {r1} 2 {BOARD_1_COL0}"], [f"GAME_STATE {r1} 2 {BOARD_1_COL0}"], []))
+    a.send(f"MOVE {r2} 3")
+    check("a move in r2: Anna and Carla hear of it, Bruno does not",
+          (a.take_all(), b.take_all(), c.take_all()),
+          ([f"GAME_STATE {r2} 2 {BOARD_1_COL3}"], [], [f"GAME_STATE {r2} 2 {BOARD_1_COL3}"]))
 
-# A joiner who started playing after asking (§5.1): the request is cancelled.
+# Requests pending in two rooms can both be accepted; leaving one game leaves the other alone.
 with Server() as srv:
-    a, b, c, d = (srv.client(n) for n in ("Anna", "Bruno", "Carla", "Dario"))
+    a, c, d = srv.client("Anna"), srv.client("Carla"), srv.client("Dario")
     r1, r3 = new_room(a, "Prima"), new_room(d, "Terza")
     c.send(f"JOIN_GAME {r1}")
     c.send(f"JOIN_GAME {r3}")
-    d.send(f"JOIN_RESPONSE {r3} 1")  # Carla is playing in r3 now
-    drain(a, b, c, d)
-    check("another owner accepted first: the owner gets JOINER_BUSY", a.ask(f"JOIN_RESPONSE {r1} 1", "ERROR"),
-          "ERROR JOIN_RESPONSE JOINER_BUSY")
-    check("...and the joiner is told the request is refused", c.take_all(), [f"JOIN_RESULT {r1} 0"])
-    check("...the room goes on waiting", b.ask("LIST_GAMES", "GAME_LIST"), f"GAME_LIST 1 {r1} Prima Anna")
-    check("...with nothing pending: NO_PENDING", a.ask(f"JOIN_RESPONSE {r1} 1", "ERROR"), "ERROR JOIN_RESPONSE NO_PENDING")
-    b.send(f"JOIN_GAME {r1}")
-    check("...and somebody else can ask", a.take_all(), [f"JOIN_NOTIFY {r1} Bruno"])
-
-# Same, when the joiner started playing by accepting a request in its own room.
-with Server() as srv:
-    a, c, e = srv.client("Anna"), srv.client("Carla"), srv.client("Eva")
-    r1, r4 = new_room(a, "Prima"), new_room(c, "DiCarla")
-    c.send(f"JOIN_GAME {r1}")
-    e.send(f"JOIN_GAME {r4}")
-    c.send(f"JOIN_RESPONSE {r4} 1")  # Carla is playing in her own room now
-    drain(a, c, e)
-    check("joiner playing in a room of its own: JOINER_BUSY", a.ask(f"JOIN_RESPONSE {r1} 1", "ERROR"),
-          "ERROR JOIN_RESPONSE JOINER_BUSY")
-    check("...and the joiner is told the request is refused", c.take_all(), [f"JOIN_RESULT {r1} 0"])
+    drain(a, c, d)
+    a.send(f"JOIN_RESPONSE {r1} 1")
+    d.send(f"JOIN_RESPONSE {r3} 1")
+    check("both owners accept: Carla is in both games", c.take_all(),
+          [f"JOIN_RESULT {r1} 1", f"GAME_START {r1} 2 Anna", f"GAME_STATE {r1} 1 {EMPTY}",
+           f"JOIN_RESULT {r3} 1", f"GAME_START {r3} 2 Dario", f"GAME_STATE {r3} 1 {EMPTY}"])
+    drain(a, d)
+    c.send(f"LEAVE_GAME {r1}")
+    check("Carla leaves r1: Anna is told", a.take("OPPONENT_LEFT"), f"OPPONENT_LEFT {r1}")
+    check("...Dario, in the other game, hears nothing about it", d.take("OPPONENT_LEFT"), None)
+    drain(a, c, d)
+    d.send(f"MOVE {r3} 0")
+    check("the game with Dario goes on: Carla sees his move", c.take_all(), [f"GAME_STATE {r3} 2 {BOARD_1_COL0}"])
 
 
 # ---------------------------------------------------------------- many joiners at the same instant

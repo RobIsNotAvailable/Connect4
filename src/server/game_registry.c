@@ -5,13 +5,11 @@
 // The public functions below are already declared in game_registry.h.
 // These are the private helpers defined in this file, forward-declared
 // here so each can be defined after its first caller: leave_game_slot and
-// free_slot after game_registry_handle_disconnect, game_id_is_valid and
-// is_playing after game_registry_set_pending, count_owned_games after
-// game_create.
+// free_slot after game_registry_handle_disconnect, game_id_is_valid after
+// game_registry_set_pending, count_owned_games after game_create.
 static void leave_game_slot(int index, int sock, LeaveEvent *event);
 static void free_slot(int index);
 static int game_id_is_valid(int game_id);
-static int is_playing(int sock);
 static int count_owned_games(int sock);
 
 // Thread-safe registry of games, mirroring ClientList (see
@@ -81,8 +79,9 @@ CreateResult game_create(int owner_sock, const char *name, Game *out_game)
 }
 
 // Returns how many occupied slots have 'sock' as owner, whatever their
-// state. Caller must hold registry.mutex. Same bounded full scan as
-// is_playing below; only runs on CREATE_GAME, which is rare.
+// state. Caller must hold registry.mutex. A full scan bounded by the highest
+// id ever handed out, like the other ones in this file; only runs on
+// CREATE_GAME, which is rare.
 static int count_owned_games(int sock)
 {
     int n = 0;
@@ -296,10 +295,6 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
         {
             result = JOIN_ERR_ALREADY_PENDING;
         }
-        else if (is_playing(joiner_sock))
-        {
-            result = JOIN_ERR_ALREADY_PLAYING;
-        }
         else
         {
             registry.games[i].pending_joiner_sock = joiner_sock;
@@ -325,23 +320,6 @@ static int game_id_is_valid(int game_id)
     return game_id >= 1 && game_id <= MAX_GAMES && registry.games[game_id - 1].state != GAME_EMPTY;
 }
 
-// Returns 1 if 'sock' is currently owner or player2 of any PLAYING game
-// (docs/protocol.md §5.1: a client plays at most one game at a time).
-// Caller must hold registry.mutex. Bounded by the highest id ever
-// handed out, like the other full-registry scans in this file.
-static int is_playing(int sock)
-{
-    for (int i = 0; i < registry.next_id - 1; i++)
-    {
-        if (registry.games[i].state == GAME_PLAYING &&
-            (registry.games[i].owner_sock == sock || registry.games[i].player2_sock == sock))
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game)
 {
     ResolveResult result = RESOLVE_ERR_NOT_FOUND;
@@ -361,20 +339,6 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         {
             result = RESOLVE_ERR_NO_PENDING;
         }
-        else if (accepted && is_playing(owner_sock))
-        {
-            result = RESOLVE_ERR_ALREADY_PLAYING;
-        }
-        else if (accepted && is_playing(joiner_sock))
-        {
-            // set_pending only checked the joiner when the request was made,
-            // and a client can have requests pending in several games:
-            // another owner may have accepted it since. Playing two matches
-            // at once isn't allowed (docs/protocol.md §5.1), so this one is
-            // cancelled - the game stays WAITING for someone else.
-            registry.games[i].pending_joiner_sock = -1;
-            result = RESOLVE_ERR_JOINER_BUSY;
-        }
         else
         {
             if (accepted)
@@ -391,7 +355,7 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         }
 
         *out_game = registry.games[i];
-        if (result == RESOLVE_OK || result == RESOLVE_ERR_JOINER_BUSY)
+        if (result == RESOLVE_OK)
         {
             // pending_joiner_sock was just cleared above, but the caller
             // still needs to know who to notify with JOIN_RESULT.
@@ -491,7 +455,6 @@ RematchResult game_registry_rematch(int game_id, int sock, Game *out_game)
         int is_owner = (g->owner_sock == sock);
         int *my_vote = is_owner ? &g->owner_wants_rematch : &g->player2_wants_rematch;
         int *opponent_vote = is_owner ? &g->player2_wants_rematch : &g->owner_wants_rematch;
-        int opponent_sock = is_owner ? g->player2_sock : g->owner_sock;
 
         if (!is_owner && g->player2_sock != sock)
         {
@@ -505,23 +468,10 @@ RematchResult game_registry_rematch(int game_id, int sock, Game *out_game)
         {
             result = REMATCH_ERR_ALREADY_VOTED;
         }
-        else if (is_playing(sock))
-        {
-            // This game is FINISHED, so it doesn't count: this is another one.
-            result = REMATCH_ERR_ALREADY_PLAYING;
-        }
         else if (!*opponent_vote)
         {
             *my_vote = 1;
             result = REMATCH_WAITING;
-        }
-        else if (is_playing(opponent_sock))
-        {
-            // The opponent voted yes and then started another game (nothing
-            // stops a client leaving the finished game's pop-up behind). Same
-            // reasoning as RESOLVE_ERR_JOINER_BUSY: no two matches at once.
-            *opponent_vote = 0;
-            result = REMATCH_ERR_OPPONENT_BUSY;
         }
         else
         {

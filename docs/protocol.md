@@ -80,15 +80,12 @@ ERROR <comando> <codice>
 | `ALREADY_PENDING` | C'è già una richiesta di accesso in attesa, o il mittente ha già chiesto la rivincita |
 | `NOT_OWNER`       | Solo il creatore della partita può eseguire questa azione    |
 | `NO_PENDING`      | Non c'è nessuna richiesta da accettare/rifiutare             |
-| `ALREADY_PLAYING` | Il client sta già giocando un'altra partita                  |
-| `JOINER_BUSY`     | Chi chiedeva di entrare sta già giocando un'altra partita    |
 | `NOT_PLAYER`      | Il client non è uno dei due giocatori di quella partita      |
 | `NOT_PLAYING`     | La partita non è in corso                                    |
 | `NOT_YOUR_TURN`   | Non è il turno del mittente                                  |
 | `INVALID_COLUMN`  | Colonna fuori dall'intervallo 0–6                            |
 | `COLUMN_FULL`     | La colonna è già piena                                       |
 | `NOT_FINISHED`    | La partita non è ancora terminata                            |
-| `OPPONENT_BUSY`   | L'avversario ha votato per la rivincita ma sta giocando altrove |
 
 ## 2. Connessione
 
@@ -288,10 +285,7 @@ JOIN_RESPONSE <game_id> <accepted>
 Se accettata, la partita passa in corso. Se rifiutata, resta in attesa e può
 ricevere nuove richieste.
 
-Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`,
-`ALREADY_PLAYING` (il creatore sta già giocando altrove: la richiesta resta in
-attesa), `JOINER_BUSY` (chi chiedeva sta già giocando altrove: la richiesta
-viene annullata e lui riceve `JOIN_RESULT <game_id> 0`, §5.1).
+Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`.
 
 ### `JOIN_RESULT` (server → joiner)
 
@@ -308,23 +302,15 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
 - Il creatore della partita è il **giocatore 1**, chi si unisce è il
   **giocatore 2**.
 - Il giocatore 1 muove per primo.
-- Un client può trovarsi in più partite (crearne fino a 3, farsi accettare in
-  altre), ma può **giocarne una sola alla volta**. Una richiesta che lo
-  porterebbe in una seconda partita in corso riceve `ALREADY_PLAYING`:
-  - `JOIN_GAME` inviato da chi sta già giocando;
-  - `JOIN_RESPONSE ... 1` inviato da un creatore che sta già giocando altrove;
-  - `REMATCH` inviato da chi sta già giocando un'altra partita.
-- Chi ha fatto una richiesta di accesso non è impegnato finché il creatore non
-  accetta, quindi può averne in attesa in più partite. Se uno dei creatori
-  accetta quando chi chiedeva sta già giocando un'altra partita (per esempio
-  perché un altro creatore ha accettato prima), la richiesta viene annullata:
-  il creatore riceve `JOINER_BUSY`, chi chiedeva riceve `JOIN_RESULT <game_id>
-  0` e la partita resta in attesa di altri giocatori. Succede anche se chi
-  chiedeva ha iniziato a giocare accettando lui stesso la richiesta di un altro
-  nella partita che aveva creato.
-- Lo stesso vale per la rivincita (§7): se chi ha votato per primo inizia
-  un'altra partita, quando l'avversario vota il server risponde
-  `OPPONENT_BUSY` e scarta il voto vecchio.
+- Un client può trovarsi in più partite **contemporaneamente**: crearne fino
+  a 3, e farsi accettare in altre. Ciascuna può essere in corso, e il server
+  non pone limiti al numero di partite in corso di un client: chiedere di
+  entrare, accettare una richiesta e votare la rivincita valgono anche a chi
+  sta già giocando altrove.
+- Le partite di uno stesso client sono indipendenti. Ogni messaggio che le
+  riguarda (`MOVE`, `GAME_STATE`, `GAME_OVER`...) porta l'id della sua partita
+  e arriva solo ai due giocatori di quella partita, quindi il client sa a
+  quale appartiene.
 
 ### 5.2 Formato della griglia
 
@@ -510,10 +496,7 @@ Chi ha votato riceve quindi una risposta solo quando la partita riparte o c'è
 un errore.
 
 Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER`, `NOT_FINISHED`,
-`ALREADY_PENDING` (il mittente ha già votato), `ALREADY_PLAYING` (il mittente
-sta giocando un'altra partita, §5.1), `OPPONENT_BUSY` (l'avversario aveva
-votato ma nel frattempo ha iniziato un'altra partita: il suo voto viene
-scartato e quello del mittente non viene registrato).
+`ALREADY_PENDING` (il mittente ha già votato).
 
 Se un giocatore esce (`LEAVE_GAME` o disconnessione) la partita torna in
 attesa (§8), i voti non valgono più e `REMATCH` dà `NOT_FINISHED`.

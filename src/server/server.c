@@ -568,7 +568,6 @@ static const char *join_set_error_code(JoinSetResult r)
         case JOIN_ERR_NOT_WAITING:     return "NOT_WAITING";
         case JOIN_ERR_SELF_JOIN:       return "SELF_JOIN";
         case JOIN_ERR_ALREADY_PENDING: return "ALREADY_PENDING";
-        case JOIN_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
         default:                       return "NOT_FOUND"; // JOIN_OK never reaches here
     }
 }
@@ -604,13 +603,6 @@ static void handle_join_response(int client_sock, const Client *me, int argc, ch
         return;
     }
 
-    if (rr == RESOLVE_ERR_JOINER_BUSY)
-    {
-        // The request is over, as if the owner had refused it: the joiner
-        // has to be told (the owner gets the error below).
-        client_send_line(g.pending_joiner_sock, "JOIN_RESULT %d 0", game_id);
-    }
-
     const char *code = resolve_error_code(rr);
     printf("[SERVER] [%s] Join response for game %d rejected: %s\n", me->username, game_id, code);
     client_send_line(client_sock, "ERROR JOIN_RESPONSE %s", code);
@@ -625,8 +617,6 @@ static const char *resolve_error_code(ResolveResult r)
         case RESOLVE_ERR_NOT_FOUND:  return "NOT_FOUND";
         case RESOLVE_ERR_NOT_OWNER:  return "NOT_OWNER";
         case RESOLVE_ERR_NO_PENDING: return "NO_PENDING";
-        case RESOLVE_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
-        case RESOLVE_ERR_JOINER_BUSY:     return "JOINER_BUSY";
         default:                     return "NOT_FOUND"; // RESOLVE_OK never reaches here
     }
 }
@@ -803,8 +793,6 @@ static const char *rematch_error_code(RematchResult r)
         case REMATCH_ERR_NOT_PLAYER:      return "NOT_PLAYER";
         case REMATCH_ERR_NOT_FINISHED:    return "NOT_FINISHED";
         case REMATCH_ERR_ALREADY_VOTED:   return "ALREADY_PENDING";
-        case REMATCH_ERR_ALREADY_PLAYING: return "ALREADY_PLAYING";
-        case REMATCH_ERR_OPPONENT_BUSY:   return "OPPONENT_BUSY";
         default:                          return "NOT_FOUND"; // REMATCH_WAITING/STARTED never reach here
     }
 }
