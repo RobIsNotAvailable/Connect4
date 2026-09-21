@@ -5,6 +5,9 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
 
 import javax.swing.JFrame;
 import javax.swing.JPanel;
@@ -25,10 +28,33 @@ public class MainController
     // WIN, LOSE or DRAW of the last game, kept to redraw the rematch box when
     // the opponent asks for a rematch.
     private String gameResult;
+    private String currentScreen = "Lobby";
+
+    // Things that interrupt the player (a join request, an error) must not
+    // replace what the overlay is already showing: a Game Over box swallowed
+    // by a notice would leave the player without Rematch / Leave room. So a
+    // notice waits in this queue until the overlay is free.
+    private final Deque<Notice> pendingNotices = new ArrayDeque<>();
+    private Notice shownNotice;
 
     private LobbyPanel lobbyPanel;
     private GamePanel gamePanel;
     private OverlayPanel overlay;
+
+    private static class Notice
+    {
+        // Id of the room when the notice is a join request, otherwise null.
+        // Join requests wait for the lobby instead of interrupting a game,
+        // and can be withdrawn by the joiner (JOIN_CANCELLED).
+        final String joinRoom;
+        final Runnable show;
+
+        Notice(String joinRoom, Runnable show)
+        {
+            this.joinRoom = joinRoom;
+            this.show = show;
+        }
+    }
 
     public MainController()
     {
@@ -50,9 +76,71 @@ public class MainController
         startNetwork();
     }
 
-    public void showScreen(String screenName) 
+    public void showScreen(String screenName)
     {
+        currentScreen = screenName;
         cardLayout.show(mainPanel, screenName);
+    }
+
+    private boolean inGame()
+    {
+        return currentScreen.equals("Game");
+    }
+
+    private void notice(String joinRoom, Runnable show)
+    {
+        pendingNotices.add(new Notice(joinRoom, show));
+        showNextNotice();
+    }
+
+    private void showNotice(String title, String message)
+    {
+        notice(null, () -> overlay.showChoice(
+            title,
+            message,
+            new String[] {"OK"},
+            choice -> closeOverlay()
+        ));
+    }
+
+    private void showNextNotice()
+    {
+        if(overlay.isVisible())
+        {
+            return;
+        }
+
+        for(Iterator<Notice> it = pendingNotices.iterator(); it.hasNext();)
+        {
+            Notice next = it.next();
+            if(next.joinRoom == null || !inGame())
+            {
+                it.remove();
+                shownNotice = next;
+                next.show.run();
+                return;
+            }
+        }
+    }
+
+    // Every box is closed through here, so the next notice in line appears.
+    private void closeOverlay()
+    {
+        overlay.close();
+        shownNotice = null;
+        showNextNotice();
+    }
+
+    // A box the player must answer (Game Over, opponent left) replaces a
+    // notice that is on screen: the notice goes back to the front of the
+    // queue and comes back once the overlay is free again.
+    private void displaceNotice()
+    {
+        if(shownNotice != null)
+        {
+            pendingNotices.addFirst(shownNotice);
+            shownNotice = null;
+        }
     }
 
     private void startNetwork()
@@ -108,9 +196,12 @@ public class MainController
     }
 
     // Without the server nothing else works, so Quit is the only choice. It
-    // replaces whatever the overlay was showing.
+    // replaces whatever the overlay was showing, and the notices waiting in
+    // the queue no longer matter.
     private void showConnectionError(String problem)
     {
+        pendingNotices.clear();
+        shownNotice = null;
         overlay.showChoice(
             "Connection error",
             problem,
@@ -134,7 +225,7 @@ public class MainController
             case "USERNAME_SET":
                 username = NameCodec.decode(parts[1]);
                 lobbyPanel.setUsername(username);
-                overlay.close();
+                closeOverlay();
                 sendMessage("LIST_GAMES");
                 break;
 
@@ -160,40 +251,32 @@ public class MainController
                 break;
 
             case "JOIN_NOTIFY":
-                String gameId = parts[1];
-                String joiner = NameCodec.decode(parts[2]);
+                askJoinRequest(parts[1], NameCodec.decode(parts[2]));
+                break;
 
-                int choice = javax.swing.JOptionPane.showConfirmDialog(
-                    mainFrame,
-                    joiner + " wants to join your game. Accept?",
-                    "Join Request",
-                    javax.swing.JOptionPane.YES_NO_OPTION
-                );
-
-                int accepted = (choice == javax.swing.JOptionPane.YES_OPTION) ? 1 : 0;
-                sendMessage("JOIN_RESPONSE " + gameId + " " + accepted);
+            case "JOIN_CANCELLED":
+                cancelJoinRequest(parts[1]);
                 break;
 
             case "JOIN_RESULT":
+                lobbyPanel.clearStatus();
                 if(parts[2].equals("0"))
                 {
-                    javax.swing.JOptionPane.showMessageDialog(
-                        mainFrame,
-                        "Your request was rejected by the owner.",
-                        "Access Denied",
-                        javax.swing.JOptionPane.WARNING_MESSAGE
-                    );
+                    showNotice("Access Denied", "Your request was rejected by the owner.");
                 }
                 break;
 
             case "GAME_START":
-                overlay.close();
+                lobbyPanel.clearStatus();
                 int id = Integer.parseInt(parts[1]);
                 int myPlayer = Integer.parseInt(parts[2]);
                 String opponent = NameCodec.decode(parts[3]);
-                
+
                 gamePanel.setupGame(id, myPlayer, username, opponent);
+                // Screen first: the box that closes now may make a waiting
+                // join request appear, and it must see where we are.
                 showScreen("Game");
+                closeOverlay();
                 break;
 
             case "GAME_STATE":
@@ -212,7 +295,7 @@ public class MainController
             // voted yet. If we already went back to the lobby ourselves it
             // is stale and is ignored.
             case "REMATCH_NOTIFY":
-                if(gamePanel.isShowing())
+                if(inGame())
                 {
                     askRematch(parts[1], gameResult, true);
                 }
@@ -223,8 +306,9 @@ public class MainController
             // its "waiting" message). If we already went back to the lobby
             // ourselves the message is stale and is ignored.
             case "OPPONENT_LEFT":
-                if(gamePanel.isShowing())
+                if(inGame())
                 {
+                    displaceNotice();
                     overlay.showChoice(
                         "Game Over",
                         "Your opponent left the room.",
@@ -235,18 +319,7 @@ public class MainController
                 break;
 
             case "ERROR":
-                if(parts[1].equals("SET_USERNAME"))
-                {
-                    askUsername("Username not accepted (" + parts[2] + "). Choose another one:");
-                    break;
-                }
-
-                javax.swing.JOptionPane.showMessageDialog(
-                    mainFrame,
-                    "Server error on command " + parts[1] + ": " + parts[2],
-                    "Error",
-                    javax.swing.JOptionPane.ERROR_MESSAGE
-                );
+                handleError(parts[1], parts[2]);
                 break;
 
             default:
@@ -281,13 +354,127 @@ public class MainController
             {
                 if(!name.trim().isEmpty())
                 {
-                    overlay.close();
+                    closeOverlay();
                     sendMessage("CREATE_GAME " + NameCodec.encode(name.trim()));
                 }
             },
             "Cancel",
-            () -> overlay.close()
+            () -> closeOverlay()
         );
+    }
+
+    // The creator leaving a waiting room alone is how a room is deleted
+    // (docs/protocol.md §7). The others are told with GAME_CLOSED but the
+    // sender only gets GAME_LEFT, so the list is asked again.
+    public void askDeleteRoom(String gameId, String roomName)
+    {
+        overlay.showChoice(
+            "Delete Room",
+            "Delete \"" + roomName + "\"?",
+            new String[] {"Delete", "Cancel"},
+            choice ->
+            {
+                closeOverlay();
+                if(choice == 0)
+                {
+                    sendMessage("LEAVE_GAME " + gameId);
+                    sendMessage("LIST_GAMES");
+                }
+            }
+        );
+    }
+
+    // Leaving in the middle of a game gives the win to nobody: the opponent
+    // stays alone in the room, which is waiting for players again.
+    public void askLeaveGame(String gameId)
+    {
+        overlay.showChoice(
+            "Leave Game",
+            "Leave the game? Nobody wins.",
+            new String[] {"Leave", "Stay"},
+            choice ->
+            {
+                if(choice == 0)
+                {
+                    leaveRoom(gameId);
+                }
+                else
+                {
+                    closeOverlay();
+                }
+            }
+        );
+    }
+
+    // A player asks to join a room of ours. Both answers go to the server,
+    // which starts the game on Accept.
+    private void askJoinRequest(String gameId, String joiner)
+    {
+        notice(gameId, () -> overlay.showChoice(
+            "Join Request",
+            joiner + " wants to join your game. Accept?",
+            new String[] {"Accept", "Decline"},
+            choice ->
+            {
+                sendMessage("JOIN_RESPONSE " + gameId + " " + (choice == 0 ? 1 : 0));
+                closeOverlay();
+            }
+        ));
+    }
+
+    // The joiner disconnected before we answered: the request is gone, so
+    // its box must not stay on screen or wait in the queue.
+    private void cancelJoinRequest(String gameId)
+    {
+        pendingNotices.removeIf(n -> gameId.equals(n.joinRoom));
+
+        if(shownNotice != null && gameId.equals(shownNotice.joinRoom))
+        {
+            closeOverlay();
+        }
+    }
+
+    private void handleError(String command, String code)
+    {
+        if(command.equals("SET_USERNAME"))
+        {
+            askUsername("Username not accepted (" + code + "). Choose another one:");
+            return;
+        }
+
+        // The buttons already refuse a move that is not allowed, so these two
+        // can only come from a race with a GAME_STATE that is about to
+        // arrive: the board on screen will be right in a moment.
+        if(command.equals("MOVE") && (code.equals("NOT_YOUR_TURN") || code.equals("COLUMN_FULL")))
+        {
+            return;
+        }
+
+        if(command.equals("JOIN_GAME"))
+        {
+            lobbyPanel.clearStatus();
+        }
+
+        showNotice("Error", errorText(command, code));
+    }
+
+    private static String errorText(String command, String code)
+    {
+        switch(code)
+        {
+            case "NOT_FOUND":       return "That room no longer exists.";
+            case "NOT_WAITING":     return "That room is no longer waiting for players.";
+            case "SELF_JOIN":       return "You can't join your own room.";
+            case "ALREADY_PENDING": return "You have already asked for this.";
+            case "TOO_MANY_GAMES":  return "You already have 3 rooms. Delete one to create another.";
+            case "SERVER_FULL":     return "The server can't host more games right now.";
+            case "INVALID_NAME":    return "That name is not valid: use 1 to 20 printable characters.";
+            case "ALREADY_PLAYING": return "You are already playing another game.";
+            case "JOINER_BUSY":     return "That player is already in another game.";
+            case "OPPONENT_BUSY":   return "Your opponent started another game.";
+            case "NO_PENDING":      return "That request is no longer valid.";
+            default:                return "Unexpected server error (" + command + ": " + code + ").";
+        }
     }
 
     // The room survives the end of the game, so the player has to choose:
@@ -298,6 +485,8 @@ public class MainController
     // already voted the message says so.
     private void askRematch(String gameId, String result, boolean opponentWants)
     {
+        displaceNotice();
+
         String message;
         if(result.equals("WIN"))
         {
@@ -343,9 +532,11 @@ public class MainController
 
     private void leaveRoom(String gameId)
     {
-        overlay.close();
-        sendMessage("LEAVE_GAME " + gameId);
+        // Lobby first: closing the box may bring up a join request that was
+        // waiting for it.
         showScreen("Lobby");
+        closeOverlay();
+        sendMessage("LEAVE_GAME " + gameId);
         sendMessage("LIST_GAMES");
     }
 

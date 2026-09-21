@@ -7,7 +7,9 @@ import javax.swing.JLabel;
 import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.GridBagLayout;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -20,7 +22,10 @@ public class GamePanel extends JPanel
     private BoardView boardView;
     private String currentBoard = "..........................................";
     private int currentGameId = -1;
-    private boolean finished = false;
+    private int myPlayer = 0;
+    // Whose turn it is: 1, 2, or 0 when the game is over.
+    private int turn = 0;
+    private JButton leaveBtn;
 
     public GamePanel(MainController controller)
     {
@@ -44,14 +49,32 @@ public class GamePanel extends JPanel
         }
         showTurn(1);
 
-        // Two equal halves: a very long name is cut with "..." instead of
-        // running into the other player's.
+        // Even margins, unlike the other buttons, so the text sits on the
+        // same line as the names.
+        leaveBtn = UiUtil.createStyledButton("Leave");
+        leaveBtn.setMargin(new Insets(12, 15, 12, 15));
+        UiUtil.addListener(leaveBtn, e ->
+        {
+            if(currentGameId != -1)
+            {
+                controller.askLeaveGame(String.valueOf(currentGameId));
+            }
+        });
+
+        // GridBagLayout keeps the button at its own size, centred in the cell.
+        JPanel middle = new JPanel(new GridBagLayout());
+        middle.setOpaque(false);
+        middle.add(leaveBtn);
+
         // A bar of its own, lighter than the background and closed by a line,
-        // so the players are visibly separated from the board.
-        JPanel header = new JPanel(new GridLayout(1, 2));
+        // so the players are visibly separated from the board. Three equal
+        // columns: a very long name is cut with "..." instead of running into
+        // the button or into the other player's.
+        JPanel header = new JPanel(new GridLayout(1, 3));
         header.setBackground(UiUtil.BACKGROUND_BAR);
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 3, 0, UiUtil.ACCENT_SECONDARY));
         header.add(player1Label);
+        header.add(middle);
         header.add(player2Label);
         add(header, BorderLayout.NORTH);
 
@@ -69,8 +92,9 @@ public class GamePanel extends JPanel
             
             UiUtil.addListener(btn, e -> 
             {
-                // The keys 1-7 also work while the game over overlay is open
-                if (currentGameId != -1 && !finished)
+                // The keys 1-7 also work while an overlay is open, so this
+                // check is also what stops a move after the game is over
+                if (canPlay(col))
                 {
                     controller.sendMessage("MOVE " + currentGameId + " " + col);
                 }
@@ -83,7 +107,8 @@ public class GamePanel extends JPanel
     public void setupGame(int gameId, int myPlayer, String myName, String opponent)
     {
         this.currentGameId = gameId;
-        this.finished = false;
+        this.myPlayer = myPlayer;
+        this.turn = 1;
         player1Label.setText(myPlayer == 1 ? myName : opponent);
         player2Label.setText(myPlayer == 2 ? myName : opponent);
         showTurn(1);
@@ -92,9 +117,17 @@ public class GamePanel extends JPanel
     public void updateState(int turn, String boardStr)
     {
         this.currentBoard = boardStr;
-        this.finished = (turn == 0);
+        this.turn = turn;
         showTurn(turn);
         boardView.repaint();
+    }
+
+    // Only on our turn and in a column that still has room: the server would
+    // refuse anything else with an error. The top row is row 0, so a column
+    // is full when its first cell is taken.
+    private boolean canPlay(int col)
+    {
+        return currentGameId != -1 && turn == myPlayer && currentBoard.charAt(col) == '.';
     }
 
     // The player on turn is at full brightness and the other one is dimmed.

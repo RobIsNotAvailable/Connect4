@@ -15,6 +15,9 @@ public class LobbyPanel extends JPanel
 {
     private UiUtil.TransparentTable gameTable;
     private JLabel usernameLabel;
+    private JLabel statusLabel;
+    private JButton deleteBtn;
+    private String username;
     private final String[] COLUMN_NAMES = {"Game ID", "Name", "Owner"};
 
     public LobbyPanel(MainController controller)
@@ -55,26 +58,72 @@ public class LobbyPanel extends JPanel
             if(row != -1)
             {
                 String gameId = gameTable.getValueAt(row, 0).toString();
+                String owner = gameTable.getValueAt(row, 2).toString();
                 controller.sendMessage("JOIN_GAME " + gameId);
+
+                // The server does not answer until the owner decides, so
+                // without this nothing would show that the click did anything.
+                statusLabel.setText("Waiting for " + owner + " to accept your request...");
             }
         });
 
         JButton createBtn = UiUtil.createStyledButton("Create Game");
         UiUtil.addListener(createBtn, e -> controller.askRoomName());
 
+        deleteBtn = UiUtil.createStyledButton("Delete Room");
+        deleteBtn.setEnabled(false);
+        UiUtil.addListener(deleteBtn, e ->
+        {
+            int row = gameTable.getSelectedRow();
+            if(row != -1)
+            {
+                String gameId = gameTable.getValueAt(row, 0).toString();
+                String roomName = gameTable.getValueAt(row, 1).toString();
+                controller.askDeleteRoom(gameId, roomName);
+            }
+        });
+        gameTable.getSelectionModel().addListSelectionListener(e -> updateDeleteButton());
+
         buttonPanel.add(joinBtn);
         buttonPanel.add(createBtn);
+        buttonPanel.add(deleteBtn);
 
-        add(buttonPanel, BorderLayout.SOUTH);
+        // A blank text keeps the row's height, so the layout does not jump
+        // when a message appears.
+        statusLabel = UiUtil.createStyledLabel(" ");
+        statusLabel.setForeground(UiUtil.ACCENT);
+        statusLabel.setFont(statusLabel.getFont().deriveFont(16f));
+
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.setOpaque(false);
+        bottom.add(statusLabel, BorderLayout.NORTH);
+        bottom.add(buttonPanel, BorderLayout.CENTER);
+
+        add(bottom, BorderLayout.SOUTH);
     }
 
     public void setUsername(String username)
     {
+        this.username = username;
         usernameLabel.setText(username);
+    }
+
+    public void clearStatus()
+    {
+        statusLabel.setText(" ");
     }
 
     public void updateGameList(Object[][] data)
     {
         gameTable.setData(data, COLUMN_NAMES);
+        updateDeleteButton();
+    }
+
+    // Only the creator can delete a room, so the button is enabled when the
+    // selected row is one of ours.
+    private void updateDeleteButton()
+    {
+        int row = gameTable.getSelectedRow();
+        deleteBtn.setEnabled(row != -1 && gameTable.getValueAt(row, 2).equals(username));
     }
 }
