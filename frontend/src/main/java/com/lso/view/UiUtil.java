@@ -17,6 +17,7 @@ import java.awt.event.ActionListener;
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
 import javax.swing.BorderFactory;
+import javax.swing.Icon;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JComponent;
@@ -174,6 +175,48 @@ public class UiUtil
         }
 
         public Direction getDirection() {return direction;}
+    }
+
+    // A little person (head and shoulders) drawn with shapes instead of an
+    // image file, so it takes the accent colour and stays sharp at any size.
+    public static class PersonIcon implements Icon
+    {
+        private final int size;
+
+        public PersonIcon(int size)
+        {
+            this.size = size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y)
+        {
+            Graphics2D g2d = (Graphics2D) g.create();
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2d.setColor(UiUtil.ACCENT);
+
+            int headSize = size * 5 / 12;
+            int shouldersTop = headSize + size / 12;
+
+            g2d.fillOval(x + (size - headSize) / 2, y, headSize, headSize);
+
+            // The upper half of an ellipse as wide as the icon: the arc is
+            // twice as tall as the space left for the shoulders.
+            g2d.fillArc(x, y + shouldersTop, size, (size - shouldersTop) * 2, 0, 180);
+            g2d.dispose();
+        }
+
+        @Override
+        public int getIconWidth()
+        {
+            return size;
+        }
+
+        @Override
+        public int getIconHeight()
+        {
+            return size;
+        }
     }
 
     public static class TransparentTable extends JTable

@@ -90,6 +90,7 @@ public class MainController
                 break;
 
             case "USERNAME_SET":
+                lobbyPanel.setUsername(NameCodec.decode(parts[1]));
                 overlay.close();
                 sendMessage("LIST_GAMES");
                 break;
