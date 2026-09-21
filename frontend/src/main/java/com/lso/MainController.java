@@ -22,6 +22,9 @@ public class MainController
     private CardLayout cardLayout;
     private PrintWriter out;
     private String username;
+    // WIN, LOSE or DRAW of the last game, kept to redraw the rematch box when
+    // the opponent asks for a rematch.
+    private String gameResult;
 
     private LobbyPanel lobbyPanel;
     private GamePanel gamePanel;
@@ -114,6 +117,7 @@ public class MainController
             case "GAME_CREATED":
             case "NEW_GAME":
             case "GAME_CLOSED":
+            case "GAME_IN_PROGRESS":
                 sendMessage("LIST_GAMES");
                 break;
 
@@ -161,7 +165,19 @@ public class MainController
                 break;
 
             case "GAME_OVER":
-                askRematch(parts[1], parts[2]);
+                gameResult = parts[2];
+                askRematch(parts[1], gameResult, false);
+                break;
+
+            // The opponent voted for a rematch first: the same box is drawn
+            // again, now saying so. It only arrives to a player who has not
+            // voted yet. If we already went back to the lobby ourselves it
+            // is stale and is ignored.
+            case "REMATCH_NOTIFY":
+                if(gamePanel.isShowing())
+                {
+                    askRematch(parts[1], gameResult, true);
+                }
                 break;
 
             // The opponent left: the room is open again and we own it. This
@@ -240,8 +256,9 @@ public class MainController
     // vote for a rematch (it starts only if the opponent votes too) or leave
     // the room. After voting the same overlay switches to a waiting message,
     // which is closed by the GAME_START of the rematch; a vote can't be
-    // withdrawn, so leaving stays the only way out.
-    private void askRematch(String gameId, String result)
+    // withdrawn, so leaving stays the only way out. If the opponent has
+    // already voted the message says so.
+    private void askRematch(String gameId, String result, boolean opponentWants)
     {
         String message;
         if(result.equals("WIN"))
@@ -255,6 +272,11 @@ public class MainController
         else
         {
             message = "It's a draw.";
+        }
+
+        if(opponentWants)
+        {
+            message += " Your opponent wants a rematch.";
         }
 
         overlay.showChoice(
