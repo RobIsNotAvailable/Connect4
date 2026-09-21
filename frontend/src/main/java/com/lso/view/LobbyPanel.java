@@ -10,7 +10,6 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import com.lso.MainController;
-import com.lso.NameCodec;
 
 public class LobbyPanel extends JPanel
 {
@@ -61,20 +60,7 @@ public class LobbyPanel extends JPanel
         });
 
         JButton createBtn = UiUtil.createStyledButton("Create Game");
-        UiUtil.addListener(createBtn, e ->
-        {
-            String name = javax.swing.JOptionPane.showInputDialog(
-                this,
-                "Room name (up to 20 characters):",
-                "Create Game",
-                javax.swing.JOptionPane.QUESTION_MESSAGE
-            );
-
-            if(name != null && !name.trim().isEmpty())
-            {
-                controller.sendMessage("CREATE_GAME " + NameCodec.encode(name.trim()));
-            }
-        });
+        UiUtil.addListener(createBtn, e -> controller.askRoomName());
 
         buttonPanel.add(joinBtn);
         buttonPanel.add(createBtn);

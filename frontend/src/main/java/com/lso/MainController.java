@@ -21,7 +21,8 @@ public class MainController
     private JPanel mainPanel;
     private CardLayout cardLayout;
     private PrintWriter out;
-    
+    private String username;
+
     private LobbyPanel lobbyPanel;
     private GamePanel gamePanel;
     private OverlayPanel overlay;
@@ -90,7 +91,8 @@ public class MainController
                 break;
 
             case "USERNAME_SET":
-                lobbyPanel.setUsername(NameCodec.decode(parts[1]));
+                username = NameCodec.decode(parts[1]);
+                lobbyPanel.setUsername(username);
                 overlay.close();
                 sendMessage("LIST_GAMES");
                 break;
@@ -148,7 +150,7 @@ public class MainController
                 int myPlayer = Integer.parseInt(parts[2]);
                 String opponent = NameCodec.decode(parts[3]);
                 
-                gamePanel.setupGame(id, myPlayer, opponent);
+                gamePanel.setupGame(id, myPlayer, username, opponent);
                 showScreen("Game");
                 break;
 
@@ -160,6 +162,22 @@ public class MainController
 
             case "GAME_OVER":
                 askRematch(parts[1], parts[2]);
+                break;
+
+            // The opponent left: the room is open again and we own it. This
+            // replaces whatever the overlay was showing (the rematch vote or
+            // its "waiting" message). If we already went back to the lobby
+            // ourselves the message is stale and is ignored.
+            case "OPPONENT_LEFT":
+                if(gamePanel.isShowing())
+                {
+                    overlay.showChoice(
+                        "Game Over",
+                        "Your opponent left the room.",
+                        new String[] {"Leave room"},
+                        button -> leaveRoom(parts[1])
+                    );
+                }
                 break;
 
             case "ERROR":
@@ -194,6 +212,27 @@ public class MainController
             name -> sendMessage("SET_USERNAME " + NameCodec.encode(name.trim())),
             "Quit",
             () -> System.exit(0)
+        );
+    }
+
+    // Same overlay as the username, so it stays inside the window. An empty
+    // name keeps it open, Cancel closes it.
+    public void askRoomName()
+    {
+        overlay.showInput(
+            "Create Game",
+            "Room name (up to 20 characters):",
+            "OK",
+            name ->
+            {
+                if(!name.trim().isEmpty())
+                {
+                    overlay.close();
+                    sendMessage("CREATE_GAME " + NameCodec.encode(name.trim()));
+                }
+            },
+            "Cancel",
+            () -> overlay.close()
         );
     }
 

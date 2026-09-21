@@ -40,6 +40,8 @@ public class UiUtil
 
     public static final Color BACKGROUND_GRAY = new Color(84, 84, 84, 255);
 
+    public static final Color BACKGROUND_BAR = new Color(46, 46, 46);
+
     public static final Color ACCENT = new Color(200,165,140);
 
     public static final Color ACCENT_SECONDARY = new Color(107, 88, 75);
@@ -178,14 +180,21 @@ public class UiUtil
     }
 
     // A little person (head and shoulders) drawn with shapes instead of an
-    // image file, so it takes the accent colour and stays sharp at any size.
+    // image file, so it can take any colour and stays sharp at any size.
     public static class PersonIcon implements Icon
     {
         private final int size;
+        private final Color color;
 
         public PersonIcon(int size)
         {
+            this(size, UiUtil.ACCENT);
+        }
+
+        public PersonIcon(int size, Color color)
+        {
             this.size = size;
+            this.color = color;
         }
 
         @Override
@@ -193,7 +202,7 @@ public class UiUtil
         {
             Graphics2D g2d = (Graphics2D) g.create();
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2d.setColor(UiUtil.ACCENT);
+            g2d.setColor(color);
 
             int headSize = size * 5 / 12;
             int shouldersTop = headSize + size / 12;
