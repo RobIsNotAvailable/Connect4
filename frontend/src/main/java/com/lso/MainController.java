@@ -59,14 +59,23 @@ public class MainController
     {
         new Thread(() ->
         {
+            boolean connected = false;
+            boolean welcomed = false;
+
             try (Socket socket = new Socket("127.0.0.1", 8080);
                  BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream())))
             {
+                connected = true;
                 out = new PrintWriter(socket.getOutputStream(), true);
 
                 String line;
                 while((line = in.readLine()) != null)
                 {
+                    if(line.startsWith("WELCOME"))
+                    {
+                        welcomed = true;
+                    }
+
                     String msg = line;
                     SwingUtilities.invokeLater(() ->
                     {
@@ -78,7 +87,36 @@ public class MainController
             {
                 System.err.println("Connection error: " + e.getMessage());
             }
+
+            // Getting here means the connection is over. How far it got says
+            // why: a full server closes it without even sending WELCOME.
+            String problem;
+            if(!connected)
+            {
+                problem = "Could not reach the server.";
+            }
+            else if(!welcomed)
+            {
+                problem = "The server closed the connection. It may be full.";
+            }
+            else
+            {
+                problem = "The connection to the server was lost.";
+            }
+            SwingUtilities.invokeLater(() -> showConnectionError(problem));
         }).start();
+    }
+
+    // Without the server nothing else works, so Quit is the only choice. It
+    // replaces whatever the overlay was showing.
+    private void showConnectionError(String problem)
+    {
+        overlay.showChoice(
+            "Connection error",
+            problem,
+            new String[] {"Quit"},
+            choice -> System.exit(0)
+        );
     }
 
     private void handleServerMessage(String msg)
