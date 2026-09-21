@@ -55,8 +55,6 @@ public class MainController
                  BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream())))
             {
                 out = new PrintWriter(socket.getOutputStream(), true);
-                
-                sendMessage("LIST_GAMES");
 
                 String line;
                 while((line = in.readLine()) != null)
@@ -83,19 +81,29 @@ public class MainController
 
         switch(cmd)
         {
+            case "WELCOME":
+                askUsername("Choose a username:");
+                break;
+
+            case "USERNAME_SET":
+                sendMessage("LIST_GAMES");
+                break;
+
             case "GAME_LIST":
                 int count = Integer.parseInt(parts[1]);
-                Object[][] data = new Object[count][2];
+                Object[][] data = new Object[count][3];
                 int index = 2;
-                
+
                 for(int i = 0; i < count; i++)
                 {
                     data[i][0] = parts[index++];
                     data[i][1] = parts[index++];
+                    data[i][2] = parts[index++];
                 }
                 lobbyPanel.updateGameList(data);
                 break;
 
+            case "GAME_CREATED":
             case "NEW_GAME":
             case "GAME_CLOSED":
                 sendMessage("LIST_GAMES");
@@ -156,6 +164,12 @@ public class MainController
                 break;
 
             case "ERROR":
+                if(parts[1].equals("SET_USERNAME"))
+                {
+                    askUsername("Username not accepted (" + parts[2] + "). Choose another one:");
+                    break;
+                }
+
                 javax.swing.JOptionPane.showMessageDialog(
                     mainFrame,
                     "Server error on command " + parts[1] + ": " + parts[2],
@@ -168,6 +182,25 @@ public class MainController
                 System.out.println("Unhandled command: " + cmd);
                 break;
         }
+    }
+
+    // The server refuses every command until a username is set, so this is
+    // the first thing the client does. Closing the dialog quits the app.
+    private void askUsername(String prompt)
+    {
+        String name = javax.swing.JOptionPane.showInputDialog(
+            mainFrame,
+            prompt,
+            "Username",
+            javax.swing.JOptionPane.QUESTION_MESSAGE
+        );
+
+        if(name == null)
+        {
+            System.exit(0);
+        }
+
+        sendMessage("SET_USERNAME " + name.trim());
     }
 
     public void sendMessage(String msg)

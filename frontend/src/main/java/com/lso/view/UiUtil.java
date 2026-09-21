@@ -211,6 +211,14 @@ public class UiUtil
             setTableHeader(header);
         }
 
+        // The rows only display what the server sent: a double click must
+        // not turn a cell into a text field.
+        @Override
+        public boolean isCellEditable(int row, int column)
+        {
+            return false;
+        }
+
         public void setData(Object[][] data, String[] columnNames)
         {
             setModel(new javax.swing.table.DefaultTableModel(data, columnNames));

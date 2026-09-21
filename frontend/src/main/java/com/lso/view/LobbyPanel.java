@@ -9,7 +9,7 @@ import com.lso.MainController;
 public class LobbyPanel extends JPanel
 {
     private UiUtil.TransparentTable gameTable;
-    private final String[] COLUMN_NAMES = {"Game ID", "Owner"};
+    private final String[] COLUMN_NAMES = {"Game ID", "Name", "Owner"};
 
     public LobbyPanel(MainController controller)
     {
@@ -18,9 +18,10 @@ public class LobbyPanel extends JPanel
 
         add(UiUtil.createStyledLabel("Available Games"), BorderLayout.NORTH);
 
-        gameTable = new UiUtil.TransparentTable(new Object[0][2], COLUMN_NAMES);
-        gameTable.setEnabled(true); 
-        
+        gameTable = new UiUtil.TransparentTable(new Object[0][3], COLUMN_NAMES);
+        gameTable.setEnabled(true);
+        gameTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+
         UiUtil.TransparentScrollPanel scrollPane = new UiUtil.TransparentScrollPanel(gameTable, 600, 400);
         add(scrollPane, BorderLayout.CENTER);
 
@@ -41,7 +42,17 @@ public class LobbyPanel extends JPanel
         JButton createBtn = UiUtil.createStyledButton("Create Game");
         UiUtil.addListener(createBtn, e ->
         {
-            controller.sendMessage("CREATE_GAME");
+            String name = javax.swing.JOptionPane.showInputDialog(
+                this,
+                "Room name (1-20 characters, no spaces):",
+                "Create Game",
+                javax.swing.JOptionPane.QUESTION_MESSAGE
+            );
+
+            if(name != null && !name.trim().isEmpty())
+            {
+                controller.sendMessage("CREATE_GAME " + name.trim());
+            }
         });
 
         buttonPanel.add(joinBtn);
