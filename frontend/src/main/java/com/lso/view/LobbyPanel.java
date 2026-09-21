@@ -5,6 +5,7 @@ import javax.swing.JButton;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import com.lso.MainController;
+import com.lso.NameCodec;
 
 public class LobbyPanel extends JPanel
 {
@@ -44,14 +45,14 @@ public class LobbyPanel extends JPanel
         {
             String name = javax.swing.JOptionPane.showInputDialog(
                 this,
-                "Room name (1-20 characters, no spaces):",
+                "Room name (up to 20 characters):",
                 "Create Game",
                 javax.swing.JOptionPane.QUESTION_MESSAGE
             );
 
             if(name != null && !name.trim().isEmpty())
             {
-                controller.sendMessage("CREATE_GAME " + name.trim());
+                controller.sendMessage("CREATE_GAME " + NameCodec.encode(name.trim()));
             }
         });
 

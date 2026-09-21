@@ -13,8 +13,9 @@ import javax.swing.SwingUtilities;
 import com.lso.view.MainFrame;
 import com.lso.view.GamePanel;
 import com.lso.view.LobbyPanel;
+import com.lso.view.OverlayPanel;
 
-public class MainController 
+public class MainController
 {
     private MainFrame mainFrame;
     private JPanel mainPanel;
@@ -23,10 +24,13 @@ public class MainController
     
     private LobbyPanel lobbyPanel;
     private GamePanel gamePanel;
+    private OverlayPanel overlay;
 
-    public MainController() 
+    public MainController()
     {
         mainFrame = new MainFrame();
+        overlay = new OverlayPanel();
+        mainFrame.setGlassPane(overlay);
         cardLayout = new CardLayout();
         mainPanel = new JPanel(cardLayout);
         mainPanel.setOpaque(false);
@@ -86,6 +90,7 @@ public class MainController
                 break;
 
             case "USERNAME_SET":
+                overlay.close();
                 sendMessage("LIST_GAMES");
                 break;
 
@@ -97,8 +102,8 @@ public class MainController
                 for(int i = 0; i < count; i++)
                 {
                     data[i][0] = parts[index++];
-                    data[i][1] = parts[index++];
-                    data[i][2] = parts[index++];
+                    data[i][1] = NameCodec.decode(parts[index++]);
+                    data[i][2] = NameCodec.decode(parts[index++]);
                 }
                 lobbyPanel.updateGameList(data);
                 break;
@@ -111,7 +116,7 @@ public class MainController
 
             case "JOIN_NOTIFY":
                 String gameId = parts[1];
-                String joiner = parts[2];
+                String joiner = NameCodec.decode(parts[2]);
 
                 int choice = javax.swing.JOptionPane.showConfirmDialog(
                     mainFrame,
@@ -137,9 +142,10 @@ public class MainController
                 break;
 
             case "GAME_START":
+                overlay.close();
                 int id = Integer.parseInt(parts[1]);
                 int myPlayer = Integer.parseInt(parts[2]);
-                String opponent = parts[3];
+                String opponent = NameCodec.decode(parts[3]);
                 
                 gamePanel.setupGame(id, myPlayer, opponent);
                 showScreen("Game");
@@ -177,27 +183,24 @@ public class MainController
     }
 
     // The server refuses every command until a username is set, so this is
-    // the first thing the client does. Closing the dialog quits the app.
+    // the first thing the client does. Quit closes the app.
     private void askUsername(String prompt)
     {
-        String name = javax.swing.JOptionPane.showInputDialog(
-            mainFrame,
-            prompt,
+        overlay.showInput(
             "Username",
-            javax.swing.JOptionPane.QUESTION_MESSAGE
+            prompt,
+            "OK",
+            name -> sendMessage("SET_USERNAME " + NameCodec.encode(name.trim())),
+            "Quit",
+            () -> System.exit(0)
         );
-
-        if(name == null)
-        {
-            System.exit(0);
-        }
-
-        sendMessage("SET_USERNAME " + name.trim());
     }
 
     // The room survives the end of the game, so the player has to choose:
     // vote for a rematch (it starts only if the opponent votes too) or leave
-    // the room. Closing the dialog counts as leaving.
+    // the room. After voting the same overlay switches to a waiting message,
+    // which is closed by the GAME_START of the rematch; a vote can't be
+    // withdrawn, so leaving stays the only way out.
     private void askRematch(String gameId, String result)
     {
         String message;
@@ -214,29 +217,36 @@ public class MainController
             message = "It's a draw.";
         }
 
-        Object[] options = {"Rematch", "Leave room"};
-        int choice = javax.swing.JOptionPane.showOptionDialog(
-            mainFrame,
-            message,
+        overlay.showChoice(
             "Game Over",
-            javax.swing.JOptionPane.DEFAULT_OPTION,
-            javax.swing.JOptionPane.INFORMATION_MESSAGE,
-            null,
-            options,
-            options[0]
+            message,
+            new String[] {"Rematch", "Leave room"},
+            choice ->
+            {
+                if(choice == 0)
+                {
+                    sendMessage("REMATCH " + gameId);
+                    overlay.showChoice(
+                        "Game Over",
+                        "Waiting for the opponent's decision...",
+                        new String[] {"Leave room"},
+                        waitingChoice -> leaveRoom(gameId)
+                    );
+                }
+                else
+                {
+                    leaveRoom(gameId);
+                }
+            }
         );
+    }
 
-        if(choice == 0)
-        {
-            sendMessage("REMATCH " + gameId);
-            gamePanel.showWaitingForRematch();
-        }
-        else
-        {
-            sendMessage("LEAVE_GAME " + gameId);
-            showScreen("Lobby");
-            sendMessage("LIST_GAMES");
-        }
+    private void leaveRoom(String gameId)
+    {
+        overlay.close();
+        sendMessage("LEAVE_GAME " + gameId);
+        showScreen("Lobby");
+        sendMessage("LIST_GAMES");
     }
 
     public void sendMessage(String msg)

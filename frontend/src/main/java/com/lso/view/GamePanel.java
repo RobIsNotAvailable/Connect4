@@ -17,6 +17,7 @@ public class GamePanel extends JPanel
     private String currentBoard = "..........................................";
     private int myPlayer = 0; 
     private int currentGameId = -1;
+    private boolean finished = false;
 
     public GamePanel(MainController controller) 
     {
@@ -40,7 +41,8 @@ public class GamePanel extends JPanel
             
             UiUtil.addListener(btn, e -> 
             {
-                if (currentGameId != -1) 
+                // The keys 1-7 also work while the game over overlay is open
+                if (currentGameId != -1 && !finished)
                 {
                     controller.sendMessage("MOVE " + currentGameId + " " + col);
                 }
@@ -54,13 +56,15 @@ public class GamePanel extends JPanel
     {
         this.currentGameId = gameId;
         this.myPlayer = myPlayer;
+        this.finished = false;
         statusLabel.setText("Playing against: " + opponent + " | You are Player " + myPlayer);
     }
 
     public void updateState(int turn, String boardStr) 
     {
         this.currentBoard = boardStr;
-        if (turn == 0) 
+        this.finished = (turn == 0);
+        if (turn == 0)
         {
             statusLabel.setText("Game Over!");
         } 
@@ -73,11 +77,6 @@ public class GamePanel extends JPanel
             statusLabel.setText("Opponent's turn...");
         }
         boardView.repaint();
-    }
-
-    public void showWaitingForRematch()
-    {
-        statusLabel.setText("Waiting for the opponent's rematch...");
     }
 
     private class BoardView extends JPanel
