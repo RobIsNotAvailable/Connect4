@@ -11,6 +11,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -50,6 +51,27 @@ public class MainController
     private final Deque<Notice> pendingNotices = new ArrayDeque<>();
     private Notice shownNotice;
 
+    // The rooms we asked to join, by id, while their owners decide. The answer
+    // (JOIN_RESULT) and the room closing (GAME_CLOSED) name only the id, and
+    // the player must be told which room it was. 'lastAsked' is the last
+    // JOIN_GAME sent: a refusal (ERROR JOIN_GAME) names no room, but it comes
+    // back at once, before the player can ask for another one.
+    private final Map<Integer, AskedRoom> askedRooms = new LinkedHashMap<>();
+    private int lastAsked;
+
+    // The last join request we answered, for the same reason: an error on
+    // JOIN_RESPONSE does not say which request it was about.
+    private String answeredRoom;
+    private String answeredJoiner;
+
+    // What the player last typed as username and as room name, to give it
+    // back when the server refuses it.
+    private String typedUsername = "";
+    private String typedRoomName = "";
+
+    // MAX_MATCHES_PER_PLAYER in the server: the games a player can be in at once.
+    private static final int MAX_MATCHES = 5;
+
     private LobbyPanel lobbyPanel;
     private GamePanel gamePanel;
     private OverlayPanel overlay;
@@ -68,6 +90,8 @@ public class MainController
             this.show = show;
         }
     }
+
+    private record AskedRoom(String name, String owner) {}
 
     public MainController()
     {
@@ -349,11 +373,7 @@ public class MainController
                 break;
 
             case "JOIN_RESULT":
-                lobbyPanel.clearStatus();
-                if(parts[2].equals("0"))
-                {
-                    showNotice("Access Denied", "Your request was rejected by the owner.");
-                }
+                onJoinResult(Integer.parseInt(parts[1]), parts[2].equals("1"));
                 break;
 
             case "GAME_START":
@@ -396,13 +416,17 @@ public class MainController
     // the middle of another game must not be pulled out of it.
     private void onGameStart(int id, int myPlayer, String opponent)
     {
-        lobbyPanel.clearStatus();
+        askedRooms.remove(id);
+        showJoinStatus();
 
         GameSession session = new GameSession(id, myPlayer, username, opponent);
         sessions.put(id, session);
 
         if(viewed == null || viewed.getId() == id)
         {
+            // A join request on screen is not lost with the box: it waits
+            // in line and comes back when the player is in the lobby again.
+            displaceNotice();
             viewGame(session);
             closeOverlay();
         }
@@ -414,6 +438,68 @@ public class MainController
             sendMessage("SET_ACTIVE_GAME " + viewed.getId());
             notifyBackground(session, "New game against " + opponent);
             refreshWaitingCount();
+        }
+    }
+
+    // Join Selected. The server answers only when the owner decides, so the
+    // status line says we are waiting. A room already asked is not asked again
+    // (a double click): the server would refuse it.
+    public void joinGame(int id, String roomName, String owner)
+    {
+        if(askedRooms.containsKey(id))
+        {
+            return;
+        }
+        askedRooms.put(id, new AskedRoom(roomName, owner));
+        lastAsked = id;
+        sendMessage("JOIN_GAME " + id);
+        showJoinStatus();
+    }
+
+    // The status line under the lobby says which requests are still waiting.
+    private void showJoinStatus()
+    {
+        if(askedRooms.isEmpty())
+        {
+            lobbyPanel.clearStatus();
+        }
+        else if(askedRooms.size() == 1)
+        {
+            AskedRoom room = askedRooms.values().iterator().next();
+            lobbyPanel.setStatus("Waiting for " + room.owner() + " to accept your request...");
+        }
+        else
+        {
+            lobbyPanel.setStatus("Waiting for " + askedRooms.size() + " owners to accept your requests...");
+        }
+    }
+
+    // The owner decided. On accept GAME_START follows, which is all the player
+    // needs to see. A request can also end without the owner declining it: the
+    // server cancels it when we reach MAX_MATCHES while it waits, and then
+    // nobody could accept it anyway.
+    private void onJoinResult(int id, boolean accepted)
+    {
+        AskedRoom room = askedRooms.remove(id);
+        showJoinStatus();
+        if(accepted)
+        {
+            return;
+        }
+
+        String roomName = (room != null) ? "\"" + room.name() + "\"" : "the room";
+        if(sessions.size() >= MAX_MATCHES)
+        {
+            showNotice("Request cancelled", "Your request to join " + roomName
+                       + " did not go through: you are already playing the maximum number of games (" + MAX_MATCHES + ").");
+        }
+        else if(room != null)
+        {
+            showNotice("Request declined", room.owner() + " declined your request to join " + roomName + ".");
+        }
+        else
+        {
+            showNotice("Request declined", "Your request to join the room was declined.");
         }
     }
 
@@ -507,12 +593,25 @@ public class MainController
             return;
         }
 
+        // The room is ours and waits for players again, as it does when this
+        // happens to a game that is not on screen: Home keeps it that way,
+        // Leave room deletes it.
         displaceNotice();
         overlay.showChoice(
             "Game Over",
-            "Your opponent left the room.",
-            new String[] {"Leave room"},
-            button -> leaveRoom(id)
+            "Your opponent left the room. Home keeps it open for another player, Leave room deletes it.",
+            new String[] {"Leave room", "Home"},
+            button ->
+            {
+                if(button == 0)
+                {
+                    leaveRoom(id);
+                }
+                else
+                {
+                    goHome();
+                }
+            }
         );
     }
 
@@ -523,6 +622,14 @@ public class MainController
     // there is nothing to leave.
     private void onGameClosed(int id)
     {
+        // A room we asked to join, deleted before its owner answered.
+        AskedRoom asked = askedRooms.remove(id);
+        if(asked != null)
+        {
+            showJoinStatus();
+            showNotice("Room closed", "\"" + asked.name() + "\" was closed before " + asked.owner() + " answered your request.");
+        }
+
         GameSession session = sessions.remove(id);
         if(session == null)
         {
@@ -682,6 +789,7 @@ public class MainController
         overlay.showInput(
             "Username",
             prompt,
+            typedUsername,
             "OK",
             name ->
             {
@@ -689,10 +797,12 @@ public class MainController
                 // answer that the arguments are wrong.
                 if(name.trim().isEmpty())
                 {
+                    typedUsername = "";
                     askUsername("Please type a username:");
                     return;
                 }
-                sendMessage("SET_USERNAME " + NameCodec.encode(name.trim()));
+                typedUsername = name.trim();
+                sendMessage("SET_USERNAME " + NameCodec.encode(typedUsername));
             },
             "Quit",
             () -> System.exit(0)
@@ -700,20 +810,33 @@ public class MainController
     }
 
     // Same overlay as the username, so it stays inside the window. An empty
-    // name keeps it open, Cancel closes it.
+    // name keeps it open and says so, Cancel closes it.
     public void askRoomName()
+    {
+        typedRoomName = "";
+        askRoomName("Room name (up to 20 characters):");
+    }
+
+    // Asked again, with what was typed, when the name is empty or the server
+    // refuses it.
+    private void askRoomName(String prompt)
     {
         overlay.showInput(
             "Create Game",
-            "Room name (up to 20 characters):",
+            prompt,
+            typedRoomName,
             "OK",
             name ->
             {
-                if(!name.trim().isEmpty())
+                if(name.trim().isEmpty())
                 {
-                    closeOverlay();
-                    sendMessage("CREATE_GAME " + NameCodec.encode(name.trim()));
+                    typedRoomName = "";
+                    askRoomName("Please type a name for the room:");
+                    return;
                 }
+                typedRoomName = name.trim();
+                closeOverlay();
+                sendMessage("CREATE_GAME " + NameCodec.encode(typedRoomName));
             },
             "Cancel",
             () -> closeOverlay()
@@ -805,6 +928,8 @@ public class MainController
             new String[] {"Accept", "Decline"},
             choice ->
             {
+                answeredRoom = gameId;
+                answeredJoiner = joiner;
                 sendMessage("JOIN_RESPONSE " + gameId + " " + (choice == 0 ? 1 : 0));
                 closeOverlay();
             }
@@ -869,9 +994,33 @@ public class MainController
             return;
         }
 
+        // A room name the server does not accept: the box comes back with the
+        // name, to be corrected. It may take the place of a notice that
+        // appeared when the box closed, which then waits its turn again.
+        if(command.equals("CREATE_GAME") && code.equals("INVALID_NAME"))
+        {
+            displaceNotice();
+            askRoomName(errorText(code) + " Choose another one:");
+            return;
+        }
+
+        // Accepted while we already play MAX_MATCHES games: the server keeps
+        // the request waiting, but its box is gone and nobody could answer it,
+        // and the room takes one request at a time. So it is declined.
+        if(command.equals("JOIN_RESPONSE") && code.equals("TOO_MANY_MATCHES"))
+        {
+            sendMessage("JOIN_RESPONSE " + answeredRoom + " 0");
+            showNotice("Error", "You are already playing the maximum number of games (" + MAX_MATCHES + "), so "
+                       + answeredJoiner + "'s request was declined. Leave a game to accept new players.");
+            return;
+        }
+
+        // Refused at once, so it is the request just sent. ALREADY_PENDING
+        // is someone else's request: ours are never sent twice (joinGame).
         if(command.equals("JOIN_GAME"))
         {
-            lobbyPanel.clearStatus();
+            askedRooms.remove(lastAsked);
+            showJoinStatus();
         }
 
         showNotice("Error", errorText(code));
@@ -886,7 +1035,8 @@ public class MainController
             case "NOT_FOUND":       return "That room no longer exists.";
             case "NOT_WAITING":     return "That room is no longer waiting for players.";
             case "SELF_JOIN":       return "You can't join your own room.";
-            case "ALREADY_PENDING": return "You have already asked to join this room: wait for the owner's answer.";
+            // A room takes one request at a time: this one may be someone else's.
+            case "ALREADY_PENDING": return "Someone is already waiting to join this room. Try again in a moment.";
             case "TOO_MANY_GAMES":  return "You already have 3 rooms, games in progress included. Delete or leave one to create another.";
             case "SERVER_FULL":     return "The server can't host more games right now.";
             // Spaces and % travel as %20 and %25 (NameCodec), 3 characters of the 20.
@@ -995,6 +1145,13 @@ public class MainController
         refreshWaitingCount();
         closeOverlay();
         sendMessage("LIST_GAMES");
+    }
+
+    // A box is on screen. It stops the mouse but not the keys 1-7, which
+    // are bound to the whole window.
+    public boolean isOverlayOpen()
+    {
+        return overlay.isVisible();
     }
 
     public void sendMessage(String msg)

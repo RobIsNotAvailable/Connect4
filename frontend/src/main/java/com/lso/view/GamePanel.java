@@ -160,9 +160,9 @@ public class GamePanel extends JPanel
     // A move in a column, from its button, its key or a click on the board.
     private void play(int col)
     {
-        // The keys 1-7 also work while an overlay is open, so this
-        // check is also what stops a move after the game is over
-        if (session != null && session.canPlay(col))
+        // The keys 1-7 reach this even while a box is open over the board
+        // (the box stops only the mouse): the box is answered first
+        if (session != null && session.canPlay(col) && !controller.isOverlayOpen())
         {
             controller.sendMessage("MOVE " + session.getId() + " " + col);
         }

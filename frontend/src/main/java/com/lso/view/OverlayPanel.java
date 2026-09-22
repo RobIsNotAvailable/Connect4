@@ -27,6 +27,14 @@ import javax.swing.SwingUtilities;
 // "Rematch / Leave room" -> "Waiting for the opponent...").
 public class OverlayPanel extends JPanel
 {
+    // For this long after it opens or changes, a box ignores its buttons. The
+    // second click of a double click would otherwise hit the button that is
+    // now under the mouse: after Rematch, "Leave room" is almost where
+    // Rematch was. A box that pops up under a click is protected too.
+    public static final int CLICK_GUARD_MILLIS = 300;
+
+    private long openedAt; // System.nanoTime() of the last open()
+
     private JLabel titleLabel;
     private JLabel messageLabel;
     private JTextField inputField;
@@ -102,25 +110,45 @@ public class OverlayPanel extends JPanel
         {
             final int index = i;
             buttons[i] = UiUtil.createStyledButton(buttonTexts[i]);
-            UiUtil.addListener(buttons[i], e -> onChoice.accept(index));
+            UiUtil.addListener(buttons[i], e ->
+            {
+                if(!justOpened())
+                {
+                    onChoice.accept(index);
+                }
+            });
         }
 
-        open(title, message, false, buttons);
+        open(title, message, null, buttons);
     }
 
-    // A message with a text field. onSubmit gets the typed text, from the
-    // submit button or from Enter; onCancel runs when the other button is clicked.
-    public void showInput(String title, String message,
+    // A message with a text field, which starts with 'text' (so a name that
+    // was refused can be corrected instead of typed again). onSubmit gets the
+    // typed text, from the submit button or from Enter; onCancel runs when
+    // the other button is clicked.
+    public void showInput(String title, String message, String text,
                           String submitText, Consumer<String> onSubmit,
                           String cancelText, Runnable onCancel)
     {
         JButton submitButton = UiUtil.createStyledButton(submitText);
-        UiUtil.addListener(submitButton, e -> onSubmit.accept(inputField.getText()));
+        UiUtil.addListener(submitButton, e ->
+        {
+            if(!justOpened())
+            {
+                onSubmit.accept(inputField.getText());
+            }
+        });
 
         JButton cancelButton = UiUtil.createStyledButton(cancelText);
-        UiUtil.addListener(cancelButton, e -> onCancel.run());
+        UiUtil.addListener(cancelButton, e ->
+        {
+            if(!justOpened())
+            {
+                onCancel.run();
+            }
+        });
 
-        open(title, message, true, submitButton, cancelButton);
+        open(title, message, text, submitButton, cancelButton);
         inputField.addActionListener(e -> onSubmit.accept(inputField.getText()));
     }
 
@@ -136,8 +164,18 @@ public class OverlayPanel extends JPanel
         return "<html><body style='width: 370px; text-align: center'>" + escaped + "</body></html>";
     }
 
-    private void open(String title, String message, boolean withInput, JButton... buttons)
+    private boolean justOpened()
     {
+        return System.nanoTime() - openedAt < CLICK_GUARD_MILLIS * 1_000_000L;
+    }
+
+    // 'inputText' is what the text field starts with, or null for a box
+    // without one.
+    private void open(String title, String message, String inputText, JButton... buttons)
+    {
+        boolean withInput = (inputText != null);
+
+        openedAt = System.nanoTime();
         titleLabel.setText(title);
         messageLabel.setText(wrap(message));
 
@@ -146,7 +184,7 @@ public class OverlayPanel extends JPanel
         {
             inputField.removeActionListener(listener);
         }
-        inputField.setText("");
+        inputField.setText(withInput ? inputText : "");
         inputField.setVisible(withInput);
 
         buttonPanel.removeAll();

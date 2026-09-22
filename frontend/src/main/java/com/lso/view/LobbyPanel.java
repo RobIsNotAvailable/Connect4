@@ -94,13 +94,10 @@ public class LobbyPanel extends JPanel
             int row = gameTable.getSelectedRow();
             if(row != -1)
             {
-                String gameId = gameTable.getCellValue(row, 0).toString();
+                int gameId = Integer.parseInt(gameTable.getCellValue(row, 0).toString());
+                String roomName = gameTable.getCellValue(row, 1).toString();
                 String owner = gameTable.getCellValue(row, 2).toString();
-                controller.sendMessage("JOIN_GAME " + gameId);
-
-                // The server does not answer until the owner decides, so
-                // without this nothing would show that the click did anything.
-                statusLabel.setText("Waiting for " + owner + " to accept your request...");
+                controller.joinGame(gameId, roomName, owner);
             }
         });
 
@@ -180,14 +177,24 @@ public class LobbyPanel extends JPanel
         usernameLabel.setText(username);
     }
 
+    // The line above the buttons: the join requests still waiting. The
+    // server does not answer one until the owner decides, so without it
+    // nothing would show that Join did anything.
+    public void setStatus(String text)
+    {
+        statusLabel.setText(text);
+    }
+
     public void clearStatus()
     {
         statusLabel.setText(" ");
     }
 
+    // The rooms are listed again whenever anyone creates, joins or leaves one,
+    // so the selected room stays selected across the update.
     public void updateGameList(Object[][] data)
     {
-        gameTable.setData(data, COLUMN_NAMES);
+        setDataKeepingSelection(gameTable, data, COLUMN_NAMES);
         updateDeleteButton();
     }
 
@@ -195,16 +202,23 @@ public class LobbyPanel extends JPanel
     // the opponents, so the selected game stays selected across the update.
     public void updateMyGames(Object[][] rows)
     {
-        int row = myGamesTable.getSelectedRow();
-        Object selectedId = (row != -1) ? myGamesTable.getCellValue(row, 0) : null;
+        setDataKeepingSelection(myGamesTable, rows, MY_GAMES_COLUMN_NAMES);
+    }
 
-        myGamesTable.setData(rows, MY_GAMES_COLUMN_NAMES);
+    // New data means a new model, which clears the selection: the row with
+    // the same id (column 0) is selected again, if it is still there.
+    private static void setDataKeepingSelection(UiUtil.TransparentTable table, Object[][] rows, String[] columnNames)
+    {
+        int row = table.getSelectedRow();
+        Object selectedId = (row != -1) ? table.getCellValue(row, 0) : null;
+
+        table.setData(rows, columnNames);
 
         for(int i = 0; i < rows.length; i++)
         {
             if(rows[i][0].equals(selectedId))
             {
-                myGamesTable.setRowSelectionInterval(i, i);
+                table.setRowSelectionInterval(i, i);
                 break;
             }
         }
