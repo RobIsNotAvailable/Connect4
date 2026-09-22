@@ -683,7 +683,17 @@ public class MainController
             "Username",
             prompt,
             "OK",
-            name -> sendMessage("SET_USERNAME " + NameCodec.encode(name.trim())),
+            name ->
+            {
+                // Refused here, as the room name is: the server would only
+                // answer that the arguments are wrong.
+                if(name.trim().isEmpty())
+                {
+                    askUsername("Please type a username:");
+                    return;
+                }
+                sendMessage("SET_USERNAME " + NameCodec.encode(name.trim()));
+            },
             "Quit",
             () -> System.exit(0)
         );
@@ -817,15 +827,13 @@ public class MainController
     {
         if(command.equals("SET_USERNAME"))
         {
-            askUsername("Username not accepted (" + code + "). Choose another one:");
-            return;
-        }
-
-        // The buttons already refuse a move that is not allowed, so these two
-        // can only come from a race with a GAME_STATE that is about to
-        // arrive: the board on screen will be right in a moment.
-        if(command.equals("MOVE") && (code.equals("NOT_YOUR_TURN") || code.equals("COLUMN_FULL")))
-        {
+            // OK pressed twice before the answer sends the name twice: the
+            // first one was accepted, this is the refusal of the second.
+            if(code.equals("ALREADY_NAMED"))
+            {
+                return;
+            }
+            askUsername(errorText(code) + " Choose another one:");
             return;
         }
 
@@ -838,6 +846,17 @@ public class MainController
             {
                 sendMessage("SET_ACTIVE_GAME " + viewed.getId());
             }
+            return;
+        }
+
+        // The buttons already refuse a move that is not allowed, so the other
+        // refusals can only come from a race: with a GAME_STATE that is about
+        // to arrive (the board on screen will be right in a moment), or with
+        // the opponent leaving, which OPPONENT_LEFT or GAME_CLOSED tells.
+        // The same goes for a rematch voted as the opponent leaves or voted
+        // twice, and for leaving a game we are already out of.
+        if(command.equals("MOVE") || command.equals("REMATCH") || command.equals("LEAVE_GAME"))
+        {
             return;
         }
 
@@ -855,24 +874,28 @@ public class MainController
             lobbyPanel.clearStatus();
         }
 
-        showNotice("Error", errorText(command, code));
+        showNotice("Error", errorText(code));
     }
 
-    private static String errorText(String command, String code)
+    // What the player reads: never the code itself, which is already in the
+    // "Received:" line on the console.
+    private static String errorText(String code)
     {
         switch(code)
         {
             case "NOT_FOUND":       return "That room no longer exists.";
             case "NOT_WAITING":     return "That room is no longer waiting for players.";
             case "SELF_JOIN":       return "You can't join your own room.";
-            case "ALREADY_PENDING": return "You have already asked for this.";
-            case "TOO_MANY_GAMES":  return "You already have 3 rooms. Delete one to create another.";
+            case "ALREADY_PENDING": return "You have already asked to join this room: wait for the owner's answer.";
+            case "TOO_MANY_GAMES":  return "You already have 3 rooms, games in progress included. Delete or leave one to create another.";
             case "SERVER_FULL":     return "The server can't host more games right now.";
-            case "INVALID_NAME":    return "That name is not valid: use 1 to 20 printable characters.";
+            // Spaces and % travel as %20 and %25 (NameCodec), 3 characters of the 20.
+            case "INVALID_NAME":    return "That name is not valid: use up to 20 letters without accents, digits or symbols (a space counts as 3).";
+            case "USERNAME_TAKEN":  return "That username is already taken.";
             case "TOO_MANY_MATCHES": return "You are already playing the maximum number of games (5). Leave one first.";
-            case "JOINER_FULL":     return "That player is already playing the maximum number of games (5).";
-            case "NO_PENDING":      return "That request is no longer valid.";
-            default:                return "Unexpected server error (" + command + ": " + code + ").";
+            case "JOINER_FULL":     return "That player is already playing the maximum number of games (5), so their request was cancelled.";
+            case "NO_PENDING":      return "That player is no longer waiting to join.";
+            default:                return "Something went wrong: the server refused the request.";
         }
     }
 
