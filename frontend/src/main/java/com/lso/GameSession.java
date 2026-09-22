@@ -113,4 +113,18 @@ public class GameSession
     {
         return turn == myPlayer && board.charAt(col) == '.';
     }
+
+    // The row where a disc dropped in this column stops: the lowest empty
+    // one (row 5 is the bottom), or -1 if the column is full.
+    public int landingRow(int col)
+    {
+        for(int row = 5; row >= 0; row--)
+        {
+            if(board.charAt(row * 7 + col) == '.')
+            {
+                return row;
+            }
+        }
+        return -1;
+    }
 }

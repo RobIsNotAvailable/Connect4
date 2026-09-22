@@ -5,6 +5,7 @@ import javax.swing.JPanel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.GridBagConstraints;
@@ -14,6 +15,8 @@ import java.awt.Insets;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import com.lso.GameSession;
 import com.lso.MainController;
 
@@ -22,6 +25,7 @@ public class GamePanel extends JPanel
     // How long a notification stays on screen.
     public static final int NOTIFICATION_MILLIS = 6000;
 
+    private MainController controller;
     private JLabel player1Label;
     private JLabel player2Label;
     private BoardView boardView;
@@ -36,6 +40,7 @@ public class GamePanel extends JPanel
 
     public GamePanel(MainController controller)
     {
+        this.controller = controller;
         setLayout(new BorderLayout(0, 20));
         setOpaque(false);
 
@@ -122,15 +127,7 @@ public class GamePanel extends JPanel
             JButton btn = UiUtil.createStyledButton("Col " + (i + 1));
             UiUtil.addKeyBinding(btn, String.valueOf(i + 1));
             
-            UiUtil.addListener(btn, e -> 
-            {
-                // The keys 1-7 also work while an overlay is open, so this
-                // check is also what stops a move after the game is over
-                if (session != null && session.canPlay(col))
-                {
-                    controller.sendMessage("MOVE " + session.getId() + " " + col);
-                }
-            });
+            UiUtil.addListener(btn, e -> play(col));
             controlsPanel.add(btn);
         }
 
@@ -154,7 +151,21 @@ public class GamePanel extends JPanel
     {
         this.session = session;
         clearNotification();
+        // A hidden board does not hear the mouse leave it: forget where it
+        // was, the ghost comes back as soon as the mouse moves on the board.
+        boardView.setHover(-1);
         refresh();
+    }
+
+    // A move in a column, from its button, its key or a click on the board.
+    private void play(int col)
+    {
+        // The keys 1-7 also work while an overlay is open, so this
+        // check is also what stops a move after the game is over
+        if (session != null && session.canPlay(col))
+        {
+            controller.sendMessage("MOVE " + session.getId() + " " + col);
+        }
     }
 
     // A message about a game that is not on screen. It goes away by itself:
@@ -197,12 +208,19 @@ public class GamePanel extends JPanel
     public void refresh()
     {
         if(session == null)
-        {
             return;
+        
+        if(session.getPlayerName(1) == controller.getUsername())
+        {
+            player1Label.setText(session.getPlayerName(1) + " (You)");
+            player2Label.setText(session.getPlayerName(2));
         }
-
-        player1Label.setText(session.getPlayerName(1));
-        player2Label.setText(session.getPlayerName(2));
+        else 
+        {
+            player1Label.setText(session.getPlayerName(1));
+            player2Label.setText(session.getPlayerName(2) + " (You)");
+        }
+        
         showTurn(session.getTurn());
 
         boolean away = session.isOpponentAway();
@@ -235,9 +253,60 @@ public class GamePanel extends JPanel
 
     private class BoardView extends JPanel
     {
-        public BoardView() 
+        // The column under the mouse, -1 when the mouse is not on the board.
+        private int hoverCol = -1;
+
+        public BoardView()
         {
             setOpaque(false);
+
+            MouseAdapter mouse = new MouseAdapter()
+            {
+                // Pressed and not clicked: Swing drops the click if the mouse
+                // moves even by a pixel between press and release.
+                @Override
+                public void mousePressed(MouseEvent e)
+                {
+                    int col = columnAt(e.getX());
+                    if (col >= 0 && SwingUtilities.isLeftMouseButton(e))
+                    {
+                        play(col);
+                    }
+                }
+
+                @Override
+                public void mouseMoved(MouseEvent e)
+                {
+                    setHover(columnAt(e.getX()));
+                }
+
+                @Override
+                public void mouseExited(MouseEvent e)
+                {
+                    setHover(-1);
+                }
+            };
+            addMouseListener(mouse);
+            addMouseMotionListener(mouse);
+        }
+
+        // Drawn again only when the column changes, not at every pixel.
+        private void setHover(int col)
+        {
+            if (col != hoverCol)
+            {
+                hoverCol = col;
+                repaint();
+            }
+        }
+
+        // The column under the point x: each one is a strip as wide as a
+        // seventh of the board, as in paintComponent. -1 for the few pixels
+        // left over on the right.
+        private int columnAt(int x)
+        {
+            int col = x / (getWidth() / 7);
+            return col < 7 ? col : -1;
         }
 
         @Override
@@ -253,7 +322,18 @@ public class GamePanel extends JPanel
             int cellHeight = getHeight() / 6;
             int diameter = Math.min(cellWidth, cellHeight) - 10;
 
-            for (int row = 0; row < 6; row++) 
+            // The ghost: where my disc would land in the column under the
+            // mouse. Only where I could play, so it goes away by itself when
+            // the turn passes, the column fills up or the game is over.
+            int ghostRow = -1;
+            Color ghostColor = null;
+            if (session != null && hoverCol >= 0 && session.canPlay(hoverCol))
+            {
+                ghostRow = session.landingRow(hoverCol);
+                ghostColor = withAlpha(session.getMyPlayer() == 1 ? UiUtil.ERROR_RED : UiUtil.SUCCESS_GREEN, 90);
+            }
+
+            for (int row = 0; row < 6; row++)
             {
                 for (int col = 0; col < 7; col++) 
                 {
@@ -275,6 +355,14 @@ public class GamePanel extends JPanel
                     }
 
                     g2d.fillOval(x, y, diameter, diameter);
+
+                    // See-through, on top of the empty hole.
+                    if (row == ghostRow && col == hoverCol)
+                    {
+                        g2d.setColor(ghostColor);
+                        g2d.fillOval(x, y, diameter, diameter);
+                    }
+
                     g2d.setColor(UiUtil.ACCENT);
                     g2d.drawOval(x, y, diameter, diameter);
                 }
