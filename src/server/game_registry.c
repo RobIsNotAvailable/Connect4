@@ -107,8 +107,7 @@ static int count_matches(int sock)
     for (int i = 0; i < registry.next_id - 1; i++)
     {
         const Game *g = &registry.games[i];
-        if ((g->state == GAME_PLAYING || g->state == GAME_FINISHED) &&
-            (g->owner_sock == sock || g->player2_sock == sock))
+        if ((g->owner_sock == sock || g->player2_sock == sock))
         {
             n++;
         }
@@ -244,7 +243,7 @@ static void free_slot(int index)
 // single slot to jump to for that), so this is the one place the registry
 // still walks its range - bounded by the highest id ever handed out and
 // skipping free slots.
-int game_registry_list_waiting(GameInfo *out)
+int game_registry_list_waiting(int req_sock, GameInfo *out)
 {
     int n = 0;
 
@@ -252,7 +251,7 @@ int game_registry_list_waiting(GameInfo *out)
 
     for (int i = 0; i < registry.next_id - 1 && n < MAX_GAMES_IN_LIST; i++)
     {
-        if (registry.games[i].state == GAME_WAITING)
+        if (registry.games[i].state == GAME_WAITING && registry.games[i].owner_sock != req_sock)
         {
             out[n].game_id = registry.games[i].id;
             strncpy(out[n].name, registry.games[i].name, ROOM_NAME_LEN);
@@ -317,7 +316,7 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
         {
             result = JOIN_ERR_ALREADY_PENDING;
         }
-        else if (count_matches(joiner_sock) >= MAX_MATCHES_PER_PLAYER)
+        else if (count_matches(joiner_sock) >= MAX_GAMES_PER_PLAYER)
         {
             result = JOIN_ERR_TOO_MANY_MATCHES;
         }
@@ -365,11 +364,11 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         {
             result = RESOLVE_ERR_NO_PENDING;
         }
-        else if (accepted && count_matches(owner_sock) >= MAX_MATCHES_PER_PLAYER)
+        else if (accepted && count_matches(owner_sock) >= MAX_GAMES_PER_PLAYER)
         {
             result = RESOLVE_ERR_TOO_MANY_MATCHES;
         }
-        else if (accepted && count_matches(joiner_sock) >= MAX_MATCHES_PER_PLAYER)
+        else if (accepted && count_matches(joiner_sock) >= MAX_GAMES_PER_PLAYER)
         {
             // set_pending only checked the joiner when the request was made,
             // and a client can have requests pending in several games:

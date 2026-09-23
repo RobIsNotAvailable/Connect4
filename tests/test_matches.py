@@ -1,5 +1,5 @@
 """LIST_MY_MATCHES / MY_MATCH_LIST, OPPONENT_STATUS (docs/protocol.md §5.3) and
-the limit of MAX_MATCHES_PER_PLAYER games at once (§5.1)."""
+the limit of MAX_GAMES_PER_PLAYER games at once (§5.1)."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, finish, play_win, start_game
 
 MAX_MATCHES = 5

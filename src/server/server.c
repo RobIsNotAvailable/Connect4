@@ -485,7 +485,7 @@ static const char *create_error_code(CreateResult r)
 static void handle_list_games(int client_sock)
 {
     GameInfo games[MAX_GAMES_IN_LIST];
-    int count = game_registry_list_waiting(games);
+    int count = game_registry_list_waiting(client_sock, games);
 
     // The entries are built first and the count written afterwards, so
     // <count> always matches the entries actually in the line: with long
@@ -557,16 +557,16 @@ static const char *room_state_name(RoomState s)
 
 // LIST_MY_MATCHES: the games the sender plays, with their opponent
 // (docs/protocol.md §5.3). No truncation to handle here either: a client has
-// at most MAX_MATCHES_PER_PLAYER of them. The entries are written first and
+// at most MAX_GAMES_PER_PLAYER of them. The entries are written first and
 // counted as they go, because an opponent that disconnected since the registry
 // was read has no username left and its game is about to be closed: it is left
 // out, and 'count' stays right.
 static void handle_list_my_matches(int client_sock)
 {
-    MatchInfo matches[MAX_MATCHES_PER_PLAYER];
-    int n = game_registry_list_matches(client_sock, matches, MAX_MATCHES_PER_PLAYER);
+    MatchInfo matches[MAX_GAMES_PER_PLAYER];
+    int n = game_registry_list_matches(client_sock, matches, MAX_GAMES_PER_PLAYER);
 
-    char entries[MAX_MATCHES_PER_PLAYER * 96];
+    char entries[MAX_GAMES_PER_PLAYER * 96];
     size_t len = 0;
     int count = 0;
     entries[0] = '\0';
@@ -981,8 +981,8 @@ static int is_away(int sock, int game_id)
 // send_game_start.
 static void announce_presence(int sock, int old_active, int new_active, int skip_game)
 {
-    MatchInfo matches[MAX_MATCHES_PER_PLAYER];
-    int n = game_registry_list_matches(sock, matches, MAX_MATCHES_PER_PLAYER);
+    MatchInfo matches[MAX_GAMES_PER_PLAYER];
+    int n = game_registry_list_matches(sock, matches, MAX_GAMES_PER_PLAYER);
 
     for (int i = 0; i < n; i++)
     {

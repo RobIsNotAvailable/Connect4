@@ -196,14 +196,6 @@ public class GamePanel extends JPanel
         notificationLabel.repaint();
     }
 
-    // How many of the other games are waiting for the player's move: a
-    // counter on the Home button, which is the way to them. Unlike the
-    // notifications it stays, so it is not missed.
-    public void setOtherGamesWaiting(int count)
-    {
-        homeBtn.setText(count > 0 ? "Home (" + count + ")" : "Home");
-    }
-
     // Draws the game on screen again: call it when that game changed.
     public void refresh()
     {

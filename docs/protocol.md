@@ -316,7 +316,7 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
   entrare, accettare una richiesta e votare la rivincita valgono anche a chi
   sta già giocando altrove. Attivamente però se ne gioca una sola alla volta:
   la partita attiva (§5.3).
-- Le partite in corso di un client sono al massimo **5** (`MAX_MATCHES_PER_PLAYER`):
+- Le partite in corso di un client sono al massimo **5** (`MAX_GAMES_PER_PLAYER`):
   contano quelle di cui è un giocatore e che hanno un avversario, in corso o
   terminate (una partita terminata conta finché il giocatore non la lascia).
   Oltre il limite, chiedere di entrare dà `TOO_MANY_MATCHES`; accettare una

@@ -18,7 +18,7 @@
 // ones it is a player of that have an opponent, PLAYING or FINISHED - a
 // finished game keeps its place until the player leaves it. It also bounds
 // the reply to LIST_MY_MATCHES, so that always fits in a line.
-#define MAX_MATCHES_PER_PLAYER 5
+#define MAX_GAMES_PER_PLAYER 5
 
 // Bookkeeping for a single game: identity + owner + current state.
 // Players are identified by socket only, never by username: a username is
@@ -61,7 +61,7 @@ typedef enum
     JOIN_ERR_NOT_WAITING,
     JOIN_ERR_SELF_JOIN,
     JOIN_ERR_ALREADY_PENDING,
-    JOIN_ERR_TOO_MANY_MATCHES // the joiner already plays MAX_MATCHES_PER_PLAYER games
+    JOIN_ERR_TOO_MANY_MATCHES // the joiner already plays MAX_GAMES_PER_PLAYER games
 } JoinSetResult;
 
 // Outcomes of game_registry_resolve_join().
@@ -71,7 +71,7 @@ typedef enum
     RESOLVE_ERR_NOT_FOUND,
     RESOLVE_ERR_NOT_OWNER,
     RESOLVE_ERR_NO_PENDING,
-    RESOLVE_ERR_TOO_MANY_MATCHES, // the owner already plays MAX_MATCHES_PER_PLAYER games: the request stays pending
+    RESOLVE_ERR_TOO_MANY_MATCHES, // the owner already plays MAX_GAMES_PER_PLAYER games: the request stays pending
     RESOLVE_ERR_JOINER_FULL       // the joiner reached that number since asking: the request is cancelled
 } ResolveResult;
 
@@ -181,7 +181,7 @@ LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event);
 
 // Fills 'out' with up to MAX_GAMES_IN_LIST currently WAITING games.
 // Returns how many were copied.
-int game_registry_list_waiting(GameInfo *out);
+int game_registry_list_waiting(int req_sock, GameInfo *out);
 
 // Fills 'out' (caller-allocated, at least MAX_GAMES_PER_OWNER entries) with
 // every game owned by 'owner_sock', whatever its state. Returns how many
@@ -190,7 +190,7 @@ int game_registry_list_owned(int owner_sock, GameInfo *out);
 
 // Fills 'out' with up to 'max' games that 'sock' is a player of and that have
 // an opponent (PLAYING or FINISHED), by increasing id. Returns how many were
-// copied. A client never has more than MAX_MATCHES_PER_PLAYER of them.
+// copied. A client never has more than MAX_GAMES_PER_PLAYER of them.
 int game_registry_list_matches(int sock, MatchInfo *out, int max);
 
 // Atomically validates a join request and, if valid, marks the game as

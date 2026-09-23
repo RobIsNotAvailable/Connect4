@@ -98,7 +98,7 @@ public class ErrorTest extends Rig
 
         lobbyButton("Create Game");
         check("create: asks for a name", shown() && title().equals("Create Game")
-              && message().equals("Room name (up to 20 characters):") && typed().isEmpty(), box());
+              && message().equals("Room name:") && typed().isEmpty(), box());
         for(String blank : new String[] {"", "   "})
         {
             type(blank, false);

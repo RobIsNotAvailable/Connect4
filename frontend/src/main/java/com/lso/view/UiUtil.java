@@ -228,6 +228,45 @@ public class UiUtil
         }
     }
 
+    public static class DotIcon implements Icon
+    {
+        private final Color color;
+        private final int size;
+
+        public DotIcon(Color color, int size)
+        {
+            this.color = color;
+            this.size = size;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y)
+        {
+            if(color == null) 
+            {
+                return;
+            }
+            Graphics2D g2d = (Graphics2D) g.create();
+            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2d.setColor(color);
+
+            g2d.fillOval(x, y, size, size);
+            g2d.dispose();
+        }
+
+        @Override
+        public int getIconWidth() 
+        { 
+            return size; 
+        }
+        
+        @Override
+        public int getIconHeight() 
+        { 
+            return size; 
+        }
+    }
+
     public static class TransparentTable extends JTable
     {
         public TransparentTable(Object[][] data, String[] columnNames)
