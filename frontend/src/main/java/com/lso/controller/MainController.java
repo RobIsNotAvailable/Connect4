@@ -233,7 +233,7 @@ public class MainController
         SwingUtilities.invokeLater(() ->
         {
             UiUtil.installLookAndFeel();
-            new MainController();43
+            new MainController();
         });
     }
 }
