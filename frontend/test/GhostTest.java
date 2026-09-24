@@ -99,6 +99,13 @@ public class GhostTest extends Rig
         return expect(board, -1, -1, ' ');
     }
 
+    // Every game has a board of its own: the one on screen, 703 px wide.
+    static void onScreenBoard() throws Exception
+    {
+        board = board();
+        edt(() -> board.setSize(703, 600));
+    }
+
     static void checkHoles(String name, String expected) throws Exception
     {
         String got = holes();
@@ -123,15 +130,10 @@ public class GhostTest extends Rig
 
         start();
         logIn("Anna");
-        board = board();
-        edt(() -> board.setSize(703, 600));
-
-        move(350);
-        checkHoles("no game: no ghost", noGhost(EMPTY_BOARD));
-        leave();
 
         server("GAME_START 3 1 Bob");
         server("GAME_STATE 3 1 " + EMPTY_BOARD);
+        onScreenBoard();
         checkHoles("mouse not on the board", noGhost(EMPTY_BOARD));
         move(350);
         checkHoles("empty column: at the bottom", expect(EMPTY_BOARD, 5, 3, 'r'));
@@ -180,12 +182,22 @@ public class GhostTest extends Rig
         server("GAME_STATE 3 0 " + oneLeft);
         checkHoles("game over", noGhost(oneLeft));
 
-        // A board shown again forgets where the mouse was, until it moves.
+        // A board shown again, for the rematch, forgets where the mouse was
+        // until it moves, and shows the new game.
         move(150);
         server("GAME_OVER 3 LOSE");
-        click("Home");
+        click("Rematch");
+        server("GAME_START 3 1 Bob");
+        server("GAME_STATE 3 1 " + EMPTY_BOARD);
+        checkHoles("rematch on screen: empty board, no ghost yet", noGhost(EMPTY_BOARD));
+        move(150);
+        checkHoles("rematch: the ghost is back", expect(EMPTY_BOARD, 5, 1, 'r'));
+
+        // Another game, as player 2, on a board of its own.
+        gameButton("Home");
         server("GAME_START 9 2 Carl");
         server("GAME_STATE 9 2 " + EMPTY_BOARD);
+        onScreenBoard();
         checkHoles("new game on screen: no ghost yet", noGhost(EMPTY_BOARD));
         move(150);
         checkHoles("player 2: green ghost", expect(EMPTY_BOARD, 5, 1, 'g'));

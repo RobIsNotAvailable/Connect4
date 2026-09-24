@@ -26,6 +26,14 @@ public class ClickTest extends Rig
         return pressAt(x, MouseEvent.BUTTON1);
     }
 
+    // Every game has a board of its own: the one on screen, 703 px wide
+    // (columns of 100 px, and 3 px left over on the right).
+    static void onScreenBoard() throws Exception
+    {
+        board = board();
+        edt(() -> board.setSize(703, 600));
+    }
+
     static List<String> columnButton(int col) throws Exception
     {
         sent();
@@ -37,14 +45,10 @@ public class ClickTest extends Rig
     {
         start();
         logIn("Anna");
-        board = board();
-        // 703 px: columns of 100 px, and 3 px left over on the right.
-        edt(() -> board.setSize(703, 600));
-
-        check("no game yet: nothing sent", pressAt(350).isEmpty());
 
         server("GAME_START 3 1 Bob");
         server("GAME_STATE 3 1 " + EMPTY_BOARD);
+        onScreenBoard();
 
         // Every column, at its centre and at both edges.
         for(int c = 0; c < 7; c++)
@@ -71,11 +75,12 @@ public class ClickTest extends Rig
         server("GAME_STATE 3 0 " + full);
         check("game over", pressAt(350).isEmpty());
 
-        // Another game, as player 2: its id, its turn.
+        // Another game, as player 2: its id, its turn, its own board.
         server("GAME_OVER 3 WIN");
-        click("Home");
+        click("Leave room");
         server("GAME_START 9 2 Carl");
         server("GAME_STATE 9 2 " + EMPTY_BOARD);
+        onScreenBoard();
         check("player 2 in game 9", pressAt(50).equals(List.of("MOVE 9 0")));
 
         for(int c = 0; c < 7; c++)

@@ -1,14 +1,9 @@
-"""Disconnections (docs/protocol.md §8): each row of the table, the rule of 3
-rooms, a client involved in several games at once. LEAVE_GAME runs the same
-rules on a single room, see test_leave.py."""
+"""Disconnections (docs/protocol.md §8): each row of the table, a room that
+passes to a player at the limit of games, a client involved in several games
+at once. LEAVE_GAME runs the same rules on a single room, see test_leave.py."""
 import time
 
-from harness import EMPTY_BOARD as EMPTY, Server, check, finish, play_win, start_game as start
-
-
-def drain(*clients):
-    for cl in clients:
-        cl.take_all()
+from harness import EMPTY_BOARD as EMPTY, Server, check, drain, finish, play_win, start_game as start
 
 
 def hang_up(client):
@@ -75,7 +70,7 @@ with Server() as srv:
     check("owner: OPPONENT_LEFT, no GAME_OVER", a.take_all(), [f"OPPONENT_LEFT {r}"])
     check("lobby: NEW_GAME", (c.take_all(), d.take_all()),
           ([f"NEW_GAME {r} Attesa Anna"], [f"NEW_GAME {r} Attesa Anna"]))
-    check("owner list: WAITING", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Attesa WAITING")
+    check("owner list: WAITING", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Attesa - 1 WAITING 0 HERE")
     start(a, c, r)
     check("a new player finds an empty board", a.take_all()[-2:], [f"GAME_START {r} 1 Carla", f"GAME_STATE {r} 1 {EMPTY}"])
     b = srv.client("Marco")
@@ -86,7 +81,7 @@ with Server() as srv:
     check("player 2: OPPONENT_LEFT", c.take_all(), [f"OPPONENT_LEFT {r}"])
     check("lobby: NEW_GAME with the new creator", (b.take_all(), d.take_all()),
           ([f"NEW_GAME {r} Attesa Carla"], [f"NEW_GAME {r} Attesa Carla"]))
-    check("Carla owns it now, waiting", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Attesa WAITING")
+    check("Carla owns it now, waiting", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Attesa - 1 WAITING 0 HERE")
     a = srv.client("Anna")
     drain(b, d)
 
@@ -111,17 +106,20 @@ with Server() as srv:
     b.send(f"LEAVE_GAME {r}")
     drain(a, b, c, d)
 
-    # 6. the creator drops, the second player already owns 3 rooms: GAME_CLOSED
+    # 6. the creator drops while the second player is at the limit of 5 (4
+    # rooms of her own and this game): the room passes to her all the same,
+    # since it already counted for her
     e, f = srv.client("Elisa"), srv.client("Fabio")
-    ys = [e.ask(f"CREATE_GAME Y{i}", "GAME_CREATED").split()[1] for i in range(3)]
+    ys = [e.ask(f"CREATE_GAME Y{i}", "GAME_CREATED").split()[1] for i in range(4)]
     z = f.ask("CREATE_GAME Zeta", "GAME_CREATED").split()[1]
     start(f, e, z)
     drain(a, e, f)
     hang_up(f)
-    check("second player owns 3: GAME_CLOSED, not OPPONENT_LEFT", e.take_all(), [f"GAME_CLOSED {z}"])
-    check("lobby: GAME_CLOSED", a.take_all(), [f"GAME_CLOSED {z}"])
-    check("Zeta is gone", a.ask(f"JOIN_GAME {z}", "ERROR"), "ERROR JOIN_GAME NOT_FOUND")
-    check("Elisa still has her 3", e.ask("LIST_MY_GAMES", "MY_GAME_LIST").split()[:2], ["MY_GAME_LIST", "3"])
+    check("second player at the limit: OPPONENT_LEFT, she owns it now", e.take_all(), [f"OPPONENT_LEFT {z}"])
+    check("lobby: NEW_GAME with Elisa", a.take_all(), [f"NEW_GAME {z} Zeta Elisa"])
+    check("Elisa has 5, Zeta included", e.ask("LIST_MY_GAMES", "MY_GAME_LIST").split()[:2], ["MY_GAME_LIST", "5"])
+    check("...and is still at the limit", e.ask("CREATE_GAME Altra", "ERROR"), "ERROR CREATE_GAME TOO_MANY_GAMES")
+    e.send(f"LEAVE_GAME {z}")
     drain(a, b, c, d, e)
 
     # 7. both players drop, one after the other: the room disappears
@@ -156,7 +154,7 @@ with Server() as srv:
           sorted(b.take_all()), sorted([f"OPPONENT_LEFT {r2}", f"GAME_CLOSED {r1}"]))
     check("lobby: the waiting room closes, the other one is joinable again",
           sorted(d.take_all()), sorted([f"GAME_CLOSED {r1}", f"NEW_GAME {r2} Seconda Marco"]))
-    elisa_rooms = {(ys[n], f"Y{n}", "Elisa") for n in range(3)}  # still waiting, from step 6
+    elisa_rooms = {(ys[n], f"Y{n}", "Elisa") for n in range(4)}  # still waiting, from step 6
     check("LIST_GAMES: Terza and Seconda, Prima is gone", listed(d),
           elisa_rooms | {(r3, "Terza", "Carla"), (r2, "Seconda", "Marco")})
     a = srv.client("Anna")

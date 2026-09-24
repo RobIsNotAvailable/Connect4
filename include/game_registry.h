@@ -10,10 +10,10 @@
 // one game per occupied slot.
 #define MAX_GAMES 256
 
-// How many games a single client can play at once (docs/protocol.md §5.1): the
-// ones it is a player of that have an opponent, PLAYING or FINISHED - a
-// finished game keeps its place until the player leaves it. It also bounds
-// the reply to LIST_MY_MATCHES, so that always fits in a line.
+// How many games a single client can be in at once (docs/protocol.md §5.1): the
+// ones it is a player of, in any state - a room waiting for an opponent counts,
+// and a finished game keeps its place until the player leaves it. It also
+// bounds the reply to LIST_MY_GAMES, so that always fits in a line.
 #define MAX_GAMES_PER_PLAYER 5
 
 // Bookkeeping for a single game: identity + owner + current state.
@@ -70,15 +70,15 @@ typedef enum
     RESOLVE_ERR_JOINER_FULL       // the joiner reached that number since asking: the request is cancelled
 } ResolveResult;
 
-// One game of a client that has an opponent (LIST_MY_MATCHES, presence).
+// One game of a client (LIST_MY_GAMES, presence).
 typedef struct
 {
     int game_id;
     char name[ROOM_NAME_LEN];
-    int opponent_sock;
-    int my_player;   // 1 if the client is the owner, 2 otherwise
-    RoomState state; // GAME_PLAYING or GAME_FINISHED
-    int turn;        // 1 or 2 while PLAYING, 0 once FINISHED
+    int opponent_sock; // -1 while the room waits for an opponent
+    int my_player;     // 1 if the client is the owner, 2 otherwise
+    RoomState state;
+    int turn;          // 1 or 2 while PLAYING, 0 otherwise
 } MyGameInfo;
 
 // Outcomes of game_registry_apply_move().
@@ -178,9 +178,9 @@ LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event);
 // Returns how many were copied.
 int game_registry_list_waiting(int req_sock, GameInfo *out);
 
-// Fills 'out' with up to 'max' games that 'sock' is a player of and that have
-// an opponent (PLAYING or FINISHED), by increasing id. Returns how many were
-// copied. A client never has more than MAX_GAMES_PER_PLAYER of them.
+// Fills 'out' with up to 'max' games that 'sock' is a player of, in any state,
+// by increasing id. Returns how many were copied. A client never has more than
+// MAX_GAMES_PER_PLAYER of them.
 int game_registry_list_my_games(int sock, MyGameInfo *out, int max);
 
 // Atomically validates a join request and, if valid, marks the game as

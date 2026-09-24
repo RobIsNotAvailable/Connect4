@@ -13,10 +13,12 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
@@ -246,11 +248,23 @@ public class Rig
         return enabled[0];
     }
 
-    // ---- The game screen
+    // ---- The game screen: one tab per game
 
+    static JTabbedPane tabs() throws Exception
+    {
+        return (JTabbedPane) get(controller, "gamesTabs");
+    }
+
+    // The board of the selected tab, the one the player sees on the game screen.
     static Object gamePanel() throws Exception
     {
-        return get(controller, "gamePanel");
+        Object[] panel = new Object[1];
+        edt(() -> panel[0] = tabs().getSelectedComponent());
+        if(panel[0] == null)
+        {
+            throw new IllegalStateException("no game has a tab");
+        }
+        return panel[0];
     }
 
     static JComponent board() throws Exception
@@ -258,17 +272,48 @@ public class Rig
         return (JComponent) get(gamePanel(), "boardView");
     }
 
-    // A button of the game screen: Home, Abandon, Col 1..7. Home is found
-    // also as "Home (2)", when other games wait for our move.
+    // A button of the game screen: Home, Abandon, Col 1..7.
     static void gameButton(String text) throws Exception
     {
         edt(() -> findButton((Container) gamePanel(), text).doClick(0));
     }
 
+    static List<String> tabTitles() throws Exception
+    {
+        List<String> titles = new ArrayList<>();
+        edt(() ->
+        {
+            for(int i = 0; i < tabs().getTabCount(); i++)
+            {
+                titles.add(tabs().getTitleAt(i));
+            }
+        });
+        return titles;
+    }
+
+    // A click on the tab of game 'id', as the player would.
+    static void selectTab(int id) throws Exception
+    {
+        edt(() -> tabs().setSelectedComponent((Component) ((Map<?, ?>) get(controller, "activeGamePanels")).get(id)));
+    }
+
+    // The line over the column buttons of the board on screen.
+    static String notification() throws Exception
+    {
+        return labelText(gamePanel(), "notificationLabel");
+    }
+
     // ---- Plumbing
 
+    // Runs 'action' on the Swing thread and waits for it; on the Swing thread
+    // already (a helper called by another one), it just runs it.
     static void edt(SwingAction action) throws Exception
     {
+        if(SwingUtilities.isEventDispatchThread())
+        {
+            action.run();
+            return;
+        }
         SwingUtilities.invokeAndWait(() ->
         {
             try

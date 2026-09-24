@@ -1,9 +1,8 @@
 import java.util.List;
 
 // Join requests, from both sides. The joiner is told what happened to each
-// request, by room name, and the status line follows them. The owner never
-// leaves a request waiting with nobody able to answer it: the room takes one
-// request at a time, so it would be closed to everyone.
+// request, by room name, and the status line follows them. The owner's answer
+// goes to the server.
 public class JoinTest extends Rig
 {
     static final String WAITING_ONE = "Waiting for Carl to accept your request...";
@@ -73,51 +72,39 @@ public class JoinTest extends Rig
         gameButton("Home");
         sent();
 
-        // A request that ends while we play the most games: the server
-        // cancelled it (or nobody could have accepted it), and the owner is
-        // not the one to blame.
+        // A request that ends while we have the most games (the rooms of ours
+        // that wait count too, as the last MY_GAME_LIST says): the server
+        // cancelled it, and the owner is not the one to blame.
         server("GAME_LIST 1 6 roomC Dora");
         join(0);
-        for(int id = 20; id <= 23; id++)
-        {
-            server("GAME_START " + id + " 1 P" + id);
-            server("GAME_STATE " + id + " 1 " + EMPTY_BOARD);
-        }
+        server("MY_GAME_LIST 5 3 r3 Bob 2 PLAYING 1 HERE 20 r20 P20 1 PLAYING 1 HERE 21 r21 P21 1 PLAYING 1 HERE"
+               + " 22 r22 - 1 WAITING 0 HERE 23 r23 - 1 WAITING 0 HERE");
         server("JOIN_RESULT 6 0");
-        check("five games: cancelled, not declined", shown() && title().equals("Request cancelled")
-              && message().equals("Your request to join \"roomC\" did not go through: you are already playing the maximum number of games (5)."), box());
+        check("five games, waiting rooms included: cancelled, not declined", shown() && title().equals("Request cancelled")
+              && message().equals("Your request to join \"roomC\" did not go through: you already have the maximum number of games (5)."), box());
+        click("OK");
+
+        // With a place free, the same answer is the owner's decision.
+        server("MY_GAME_LIST 1 3 r3 Bob 2 PLAYING 1 HERE");
+        join(0);
+        server("JOIN_RESULT 6 0");
+        check("a place free: declined", shown() && title().equals("Request declined"), box());
         click("OK");
 
         // An answer about a room the front has no record of.
         server("JOIN_RESULT 77 0");
-        check("unknown room: still a sentence", shown() && message().startsWith("Your request to join the room"), box());
+        check("unknown room: still a sentence", shown() && message().equals("Your request to join the room was declined."), box());
         click("OK");
-        gameButton("Home");
         sent();
 
-        // ---- The owner
+        // ---- The owner: both answers go to the server
 
-        // Accepted while at the most games: the request is declined for the
-        // player, instead of waiting forever with its box gone.
         server("JOIN_NOTIFY 8 Dave");
         click("Accept");
         check("accept: sent", sent().equals(List.of("JOIN_RESPONSE 8 1")));
-        server("ERROR JOIN_RESPONSE TOO_MANY_MATCHES");
-        check("too many games: declined for the player", sent().equals(List.of("JOIN_RESPONSE 8 0")));
-        check("too many games: says so", shown() && message().equals("You are already playing the maximum number of games (5), "
-              + "so Dave's request was declined. Leave a game to accept new players."), box());
-        click("OK");
-
-        // The error names the request answered last, not an older one.
         server("JOIN_NOTIFY 9 Erin");
         click("Decline");
-        server("JOIN_NOTIFY 10 Fred");
-        click("Accept");
-        sent();
-        server("ERROR JOIN_RESPONSE TOO_MANY_MATCHES");
-        check("the last answered request is declined", sent().equals(List.of("JOIN_RESPONSE 10 0")));
-        check("and named", message().contains("Fred's request"), box());
-        click("OK");
+        check("decline: sent", sent().equals(List.of("JOIN_RESPONSE 9 0")));
 
         finish("JoinTest");
     }

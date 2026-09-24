@@ -78,8 +78,9 @@ CreateResult game_create(int owner_sock, const char *name, Game *out_game)
     return result;
 }
 
-// Returns how many games 'sock' is a player of (owner or player2) that have an
-// opponent, i.e. PLAYING or FINISHED. Caller must hold registry.mutex.
+// Returns how many games 'sock' is a player of (owner or player2), in any state:
+// the rooms that still wait for an opponent count too. Caller must hold
+// registry.mutex.
 static int count_matches(int sock)
 {
     int n = 0;
@@ -167,7 +168,8 @@ LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event)
 //
 // Whoever is left in the game keeps it. If that is the owner, the game goes
 // back to WAITING with a fresh board. If the owner is the one who left, the
-// other player takes over as owner. With nobody left, the game is removed.
+// other player takes over as owner (always possible: the game already counts
+// toward their MAX_GAMES_PER_PLAYER). With nobody left, the game is removed.
 static void leave_game_slot(int index, int sock, LeaveEvent *event)
 {
     Game *g = &registry.games[index];
@@ -179,7 +181,7 @@ static void leave_game_slot(int index, int sock, LeaveEvent *event)
     event->notify_sock = -1;
     event->other_sock = remaining_sock;
 
-    if (remaining_sock == -1 || (owner_left && count_matches(remaining_sock) >= MAX_GAMES_PER_PLAYER))
+    if (remaining_sock == -1)
     {
         event->type = LEAVE_ROOM_CLOSED;
         free_slot(index);

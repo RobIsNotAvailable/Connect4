@@ -52,22 +52,28 @@ with Server() as srv:
     check("the same name twice is fine", a.take_all(), ["GAME_CREATED 3 Sfida_1"])
     b.take_all()
 
-    # at most 3 rooms per client
-    check("4th room refused", a.ask("CREATE_GAME Quarta", "ERROR"), "ERROR CREATE_GAME TOO_MANY_GAMES")
+    # at most 5 rooms and games per client (MAX_GAMES_PER_PLAYER, §5.1)
+    a.send("CREATE_GAME Quarta")
+    a.send("CREATE_GAME Quinta")
+    check("4th and 5th room", a.take_all(), ["GAME_CREATED 4 Quarta", "GAME_CREATED 5 Quinta"])
+    b.take_all()
+    check("6th room refused", a.ask("CREATE_GAME Sesta", "ERROR"), "ERROR CREATE_GAME TOO_MANY_GAMES")
     check("...and not announced", b.take_all(), [])
     b.send("CREATE_GAME Uno")
-    check("the limit is per client: another can create", b.take_all(), ["GAME_CREATED 4 Uno"])
-    check("...and the first one is told", a.take_all(), ["NEW_GAME 4 Uno Bruno"])
+    check("the limit is per client: another can create", b.take_all(), ["GAME_CREATED 6 Uno"])
+    check("...and the first one is told", a.take_all(), ["NEW_GAME 6 Uno Bruno"])
 
-    # the list has every waiting room, own ones included, by id
-    check("list", parse_list(a.ask("LIST_GAMES", "GAME_LIST")),
-          (4, [("1", "Sfida_1", "Anna"), ("2", long_name, "Anna"), ("3", "Sfida_1", "Anna"), ("4", "Uno", "Bruno")]))
+    # the list has the waiting rooms of the others, by id, never one's own
+    check("list: the rooms of the others", parse_list(b.ask("LIST_GAMES", "GAME_LIST")),
+          (5, [("1", "Sfida_1", "Anna"), ("2", long_name, "Anna"), ("3", "Sfida_1", "Anna"),
+               ("4", "Quarta", "Anna"), ("5", "Quinta", "Anna")]))
+    check("list: not one's own", parse_list(a.ask("LIST_GAMES", "GAME_LIST")), (1, [("6", "Uno", "Bruno")]))
 
-    # deleting a room frees one of the 3 places
+    # deleting a room frees one of the places
     a.send("LEAVE_GAME 2")
     check("LEAVE_GAME on a room of one's own that is empty", a.take("GAME_LEFT"), "GAME_LEFT 2")
     check("...others are told it is gone", b.take_all(), ["GAME_CLOSED 2"])
-    a.send("CREATE_GAME Quarta")
+    a.send("CREATE_GAME Sesta")
     check("a new room fits again", (a.take_all() or [""])[0].startswith("GAME_CREATED "), True)
 
 

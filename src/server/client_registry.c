@@ -252,7 +252,6 @@ void client_broadcast_except(int except_sock1, int except_sock2, const char *fmt
 
     for (int i = 0; i < n; i++)
     {
-        printf("[SERVER] Broadcasting to socket %d: %s\n", targets[i], line);
         client_send_line(targets[i], "%s", line);
     }
 }

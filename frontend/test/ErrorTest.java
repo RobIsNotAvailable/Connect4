@@ -71,15 +71,15 @@ public class ErrorTest extends Rig
             {"JOIN_GAME", "NOT_WAITING", "That room is no longer waiting for players."},
             {"JOIN_GAME", "SELF_JOIN", "You can't join your own room."},
             {"JOIN_GAME", "ALREADY_PENDING", "Someone is already waiting to join this room. Try again in a moment."},
-            {"JOIN_GAME", "TOO_MANY_MATCHES", "You are already playing the maximum number of games (5). Leave one first."},
+            {"JOIN_GAME", "TOO_MANY_GAMES", "You already have the maximum number of games (5), rooms waiting for a player included. Leave or delete one first."},
             {"JOIN_GAME", "BAD_ARGS", unexpected},
             {"CREATE_GAME", "SERVER_FULL", "The server can't host more games right now."},
-            {"CREATE_GAME", "TOO_MANY_GAMES", "You already have 3 rooms, games in progress included. Delete or leave one to create another."},
+            {"CREATE_GAME", "TOO_MANY_GAMES", "You already have the maximum number of games (5), rooms waiting for a player included. Leave or delete one first."},
             {"CREATE_GAME", "BAD_ARGS", unexpected},
             {"JOIN_RESPONSE", "NOT_FOUND", "That room no longer exists."},
             {"JOIN_RESPONSE", "NOT_OWNER", unexpected},
             {"JOIN_RESPONSE", "NO_PENDING", "That player is no longer waiting to join."},
-            {"JOIN_RESPONSE", "JOINER_FULL", "That player is already playing the maximum number of games (5), so their request was cancelled."},
+            {"JOIN_RESPONSE", "JOINER_FULL", "That player already has the maximum number of games (5), so their request was cancelled."},
             {"-", "UNKNOWN_COMMAND", unexpected},
             {"LIST_GAMES", "NO_USERNAME", unexpected},
         };
@@ -106,11 +106,11 @@ public class ErrorTest extends Rig
             check("create \"" + blank + "\": says so", shown() && message().equals("Please type a name for the room:"), box());
         }
         type("my room", false);
-        check("create: the name is sent", sent().equals(List.of("CREATE_GAME my%20room")));
+        check("create: the name is sent", sent().equals(List.of("CREATE_GAME my|room")));
         check("create: the box closes", !shown(), box());
         server("ERROR CREATE_GAME INVALID_NAME");
         check("create refused: the box is back", shown() && title().equals("Create Game")
-              && message().equals("That name is not valid: use up to 20 letters without accents, digits or symbols (a space counts as 3). Choose another one:"), box());
+              && message().equals("That name is not valid: use up to 20 letters without accents, digits or symbols. Choose another one:"), box());
         check("create refused: with the name to correct", typed().equals("my room"), typed());
         click("Cancel");
         check("create: Cancel closes it", !shown(), box());
@@ -139,8 +139,8 @@ public class ErrorTest extends Rig
         server("GAME_STATE 7 1 " + EMPTY_BOARD);
         server("OPPONENT_LEFT 7");
         server("ERROR MOVE NOT_PLAYING");
-        check("move: the opponent-left box", shown() && message().startsWith("Your opponent left the room."), box());
-        click("Leave room");
+        check("move: the opponent-left box", shown() && message().startsWith("Your opponent left the room"), box());
+        click("Yes, delete it");
         check("move: nothing after it", !shown(), box());
 
         server("GAME_START 8 2 Bob");
@@ -150,8 +150,8 @@ public class ErrorTest extends Rig
         check("rematch: the vote is sent", sent().contains("REMATCH 8"));
         server("OPPONENT_LEFT 8");
         server("ERROR REMATCH NOT_FINISHED");
-        check("rematch: the opponent-left box", shown() && message().startsWith("Your opponent left the room."), box());
-        click("Leave room");
+        check("rematch: the opponent-left box", shown() && message().startsWith("Your opponent left the room"), box());
+        click("Yes, delete it");
         server("ERROR LEAVE_GAME NOT_FOUND");
         check("rematch: nothing after it", !shown(), box());
 

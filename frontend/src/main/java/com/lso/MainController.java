@@ -60,8 +60,11 @@ public class MainController
     private String typedUsername = "";
     private String typedRoomName = "";
 
-    // MAX_GAMES_PER_PLAYER in the server: the games a player can be in at once.
+    // MAX_GAMES_PER_PLAYER in the server: the games a player can be in at once,
+    // the rooms of ours that wait for an opponent included. 'myGamesCount' is how
+    // many we have, as the last MY_GAME_LIST said.
     private static final int MAX_MATCHES = 5;
+    private int myGamesCount;
 
     private LobbyPanel lobbyPanel;
     private JTabbedPane gamesTabs;
@@ -101,22 +104,8 @@ public class MainController
         gamesTabs = new JTabbedPane();
         mainPanel.add(gamesTabs, "GamesContainer");
 
-        gamesTabs.addChangeListener(e -> 
-        {
-            GamePanel selected = (GamePanel) gamesTabs.getSelectedComponent();
-            if(selected != null)
-            {
-                for(Map.Entry<Integer, GamePanel> entry : activeGamePanels.entrySet())
-                {
-                    if(entry.getValue() == selected)
-                    {
-                        sendMessage("SET_ACTIVE_GAME " + entry.getKey());
-                        break;
-                    }
-                }
-            }
-        });
-        
+        gamesTabs.addChangeListener(e -> onTabSelected());
+
         mainFrame.add(mainPanel);
 
         startNetwork();
@@ -150,6 +139,30 @@ public class MainController
         sendMessage("LIST_MY_GAMES");
     }
 
+    // A tab picked by the player works like Resume: that game takes the screen
+    // and becomes the active one. The tabs the code selects go through
+    // viewGame, which sets 'viewed' first, and what happens to the tabs while
+    // the lobby is shown does not matter.
+    private void onTabSelected()
+    {
+        GamePanel selected = (GamePanel) gamesTabs.getSelectedComponent();
+        if(viewed != null && selected != null && selected.getSession() != viewed)
+        {
+            resumeGame(selected.getSession().getId());
+        }
+    }
+
+    // The game is over for us: its tab goes. When it is the game on screen the
+    // lobby must be shown first, or the tabs would put another game in its place.
+    private void dropPanel(int id)
+    {
+        GamePanel gp = activeGamePanels.remove(id);
+        if(gp != null)
+        {
+            gamesTabs.remove(gp);
+        }
+    }
+
     // Something happened in a game that is not on screen, and the player is on
     // another board: a line on that board says so. In the lobby there is no
     // need, the list of the games shows it.
@@ -157,7 +170,7 @@ public class MainController
     {
         if(viewed != null && session != viewed)
         {
-            GamePanel gp = activeGamePanels.get(session.getId());
+            GamePanel gp = activeGamePanels.get(viewed.getId());
             if(gp != null)
             {
                 gp.showNotification(text);
@@ -406,12 +419,18 @@ public class MainController
         GameSession session = new GameSession(id, myPlayer, username, opponent);
         sessions.put(id, session);
 
-        if(!activeGamePanels.containsKey(id))
+        // A rematch, or a new opponent in a room of ours, keeps the tab of the
+        // game: it shows the new session from now on.
+        GamePanel gp = activeGamePanels.computeIfAbsent(id, key -> new GamePanel(this));
+        gp.show(session);
+        int tab = gamesTabs.indexOfComponent(gp);
+        if(tab == -1)
         {
-            GamePanel newGp = new GamePanel(this);
-            newGp.show(session);
-            activeGamePanels.put(id, newGp);
-            gamesTabs.addTab("VS " + opponent, newGp);
+            gamesTabs.addTab("VS " + opponent, gp);
+        }
+        else
+        {
+            gamesTabs.setTitleAt(tab, "VS " + opponent);
         }
 
         if(viewed == null || viewed.getId() == id)
@@ -474,10 +493,10 @@ public class MainController
         }
 
         String roomName = (room != null) ? "\"" + room.name() + "\"" : "the room";
-        if(sessions.size() >= MAX_MATCHES)
+        if(myGamesCount >= MAX_MATCHES)
         {
             showNotice("Request cancelled", "Your request to join " + roomName
-                       + " did not go through: you are already playing the maximum number of games (" + MAX_MATCHES + ").");
+                       + " did not go through: you already have the maximum number of games (" + MAX_MATCHES + ").");
         }
         else if(room != null)
         {
@@ -588,12 +607,13 @@ public class MainController
         if(session != viewed)
         {
             notifyBackground(session, session.getOpponent() + " left the game");
+            dropPanel(id);
             return;
         }
 
         // The room is ours and waits for players again, as it does when this
-        // happens to a game that is not on screen: Home keeps it that way,
-        // Leave room deletes it.
+        // happens to a game that is not on screen: keeping it goes home,
+        // deleting it leaves the room.
         displaceNotice();
         overlay.showChoice(
             "Game Over",
@@ -608,16 +628,16 @@ public class MainController
                 else
                 {
                     goHome();
+                    dropPanel(id);
                 }
             }
         );
     }
 
-    // GAME_CLOSED is what the others are told when a game leaves the list. A
-    // player of the game is never told it that way, except when the room is
-    // deleted under them: the opponent left and the room could not pass to us
-    // (docs/protocol.md §8). Then the game is over and the room is gone, so
-    // there is nothing to leave.
+    // GAME_CLOSED: a room left the list of the ones to join, because it was
+    // deleted or its game ended. It is never about a game of ours: a room is
+    // deleted only when its last player leaves it (docs/protocol.md §8), and
+    // the players of a game that ends are told with GAME_OVER.
     private void onGameClosed(int id)
     {
         // A room we asked to join, deleted before its owner answered.
@@ -627,34 +647,7 @@ public class MainController
             showJoinStatus();
             showNotice("Room closed", "\"" + asked.name() + "\" was closed before " + asked.owner() + " answered your request.");
         }
-
-        GameSession session = sessions.remove(id);
-        if(session == null)
-        {
-            sendMessage("LIST_GAMES");
-            return;
-        }
-
-        sendMessage("LIST_MY_GAMES");
-        if(session != viewed)
-        {
-            notifyBackground(session, session.getOpponent() + " left the game and the room was closed");
-        }
-        else
-        {
-            displaceNotice();
-            overlay.showChoice(
-                "Game Over",
-                "Your opponent left and the room was closed.",
-                new String[] {"OK"},
-                button ->
-                {
-                    viewLobby();
-                    closeOverlay();
-                    sendMessage("LIST_GAMES");
-                }
-            );
-        }
+        sendMessage("LIST_GAMES");
     }
 
     private void onOpponentStatus(int id, String status)
@@ -674,18 +667,20 @@ public class MainController
         sendMessage("LIST_MY_GAMES");
     }
 
+    // Every room and game of ours. A room that waits has "-" as opponent, which
+    // is not read: it could also be the name of a real opponent.
     private void onMyGameList(String[] parts)
     {
         int count = Integer.parseInt(parts[1]);
         List<Object[]> rows = new ArrayList<>();
         int index = 2;
+        myGamesCount = count;
 
         for(int i = 0; i < count; i++)
         {
             String id = parts[index++];
             String name = NameCodec.decode(parts[index++]);
-            String opponentRaw = parts[index++];
-            String opponent = opponentRaw.equals("-") ? "" : NameCodec.decode(opponentRaw);
+            String opponent = NameCodec.decode(parts[index++]);
             int myPlayer = Integer.parseInt(parts[index++]);
             String state = parts[index++];
             int turn = Integer.parseInt(parts[index++]);
@@ -988,11 +983,11 @@ public class MainController
             case "SELF_JOIN":       return "You can't join your own room.";
             // A room takes one request at a time: this one may be someone else's.
             case "ALREADY_PENDING": return "Someone is already waiting to join this room. Try again in a moment.";
-            case "TOO_MANY_GAMES":  return "You are already playing the maximum number of games (5). Leave one first.";
+            case "TOO_MANY_GAMES":  return "You already have the maximum number of games (" + MAX_MATCHES + "), rooms waiting for a player included. Leave or delete one first.";
             case "SERVER_FULL":     return "The server can't host more games right now.";
             case "INVALID_NAME":    return "That name is not valid: use up to 20 letters without accents, digits or symbols.";
             case "USERNAME_TAKEN":  return "That username is already taken.";
-            case "JOINER_FULL":     return "That player is already playing the maximum number of games (5), so their request was cancelled.";
+            case "JOINER_FULL":     return "That player already has the maximum number of games (" + MAX_MATCHES + "), so their request was cancelled.";
             case "NO_PENDING":      return "That player is no longer waiting to join.";
             default:                return "Something went wrong: the server refused the request.";
         }
@@ -1076,19 +1071,16 @@ public class MainController
     private void leaveRoom(int gameId)
     {
         sessions.remove(gameId);
-        
-        GamePanel gp = activeGamePanels.remove(gameId);
-        if(gp != null)
-        {
-            gamesTabs.remove(gp);
-        }
 
+        // LEAVE_GAME goes first: the list of our games asked for by viewLobby
+        // must not still have this game in it.
         sendMessage("LEAVE_GAME " + gameId);
 
         if(viewed != null && viewed.getId() == gameId)
         {
             viewLobby();
         }
+        dropPanel(gameId);
         closeOverlay();
         sendMessage("LIST_GAMES");
     }

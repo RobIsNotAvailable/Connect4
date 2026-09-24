@@ -1,19 +1,8 @@
 """SET_ACTIVE_GAME and NOT_ACTIVE (docs/protocol.md §5.3): a client can be in
 several games but plays actively one at a time."""
-from harness import EMPTY_BOARD as EMPTY, Server, check, finish, play_win, start_game
+from harness import EMPTY_BOARD as EMPTY, Server, check, drain, finish, new_room, play_win, start_game
 
 BOARD_1_COL0 = "." * 35 + "1" + "." * 6  # player 1 dropped a disc in column 0
-
-
-def new_room(owner, name):
-    """The owner creates a room; returns its id."""
-    return owner.ask(f"CREATE_GAME {name}", "GAME_CREATED").split()[1]
-
-
-def drain(*clients):
-    """Throws away what the clients have not read yet (NEW_GAME and the like)."""
-    for c in clients:
-        c.take_all()
 
 
 # ---------------------------------------------------------------- SET_ACTIVE_GAME: what it accepts and refuses
@@ -163,14 +152,16 @@ with Server() as srv:
           f"GAME_STATE {y} 2 {BOARD_1_COL0}")
 
 
-# Same, when the game is deleted while its *other* player is the one who stays: a room cannot pass to a
-# player who already owns 3 rooms (§8), so it is deleted and it was that player's active game too.
+# Same, when the owner leaves and the room passes to the other player (§8): it is no longer played, so it
+# stops being her active game; then she deletes it and its id goes to someone else's game.
 with Server() as srv:
     e, f, g, h, i = (srv.client(n) for n in ("Elisa", "Fabio", "Gino", "Hugo", "Ilaria"))
-    ys = [new_room(e, f"Y{k}") for k in range(3)]
+    ys = [new_room(e, "Y0")]
     z = new_room(f, "Zeta")
     start_game(f, e, z)  # Elisa is player 2 of z, which is her active game
     f.send(f"LEAVE_GAME {z}")
+    check("the room passes to Elisa", e.take("OPPONENT_LEFT"), f"OPPONENT_LEFT {z}")
+    e.send(f"LEAVE_GAME {z}")
     drain(e, f, g, h, i)
     w = new_room(g, "Riusata")
     check("the deleted room's id is given to the next room", w, z)

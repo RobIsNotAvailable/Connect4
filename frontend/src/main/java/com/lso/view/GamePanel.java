@@ -157,6 +157,11 @@ public class GamePanel extends JPanel
         refresh();
     }
 
+    public GameSession getSession()
+    {
+        return session;
+    }
+
     // A move in a column, from its button, its key or a click on the board.
     private void play(int col)
     {

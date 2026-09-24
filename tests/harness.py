@@ -150,6 +150,17 @@ class Server:
 EMPTY_BOARD = "." * 42
 
 
+def new_room(owner, name):
+    """The owner creates a room; returns its id."""
+    return owner.ask(f"CREATE_GAME {name}", "GAME_CREATED").split()[1]
+
+
+def drain(*clients):
+    """Throws away what the clients have not read yet (NEW_GAME and the like)."""
+    for c in clients:
+        c.take_all()
+
+
 def start_game(owner, joiner, room):
     """The joiner asks, the owner accepts: the game starts."""
     joiner.send(f"JOIN_GAME {room}")

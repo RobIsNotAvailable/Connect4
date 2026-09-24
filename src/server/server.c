@@ -16,6 +16,15 @@
 // How long a send() to a client may stay blocked before the server gives up on it
 #define SEND_TIMEOUT_SEC 2
 
+// Held while a command is handled and while a disconnect is applied, from the
+// change to the registries to the last notification about it. The registries'
+// own locks are released before the notifications go out, so without this two
+// threads could apply their changes in one order and notify them in the other:
+// both players hang up together, GAME_CLOSED goes out and then the NEW_GAME of
+// the first hang-up, and the lobby shows a room that no longer exists
+// (tests/stress_disconnect_race.py). Lock order: command_mutex, then a client's
+// send mutex, then the registries' own.
+static pthread_mutex_t command_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void handle_stop_signal(int sig);
 static void *client_handler(void *sock_id);
@@ -200,7 +209,9 @@ static void *client_handler(void *sock_id)
 
     while ((comm_status = recv_line(&reader, line)) == LINE_OK)
     {
+        pthread_mutex_lock(&command_mutex);
         dispatch_command(client_sock, &me, line);
+        pthread_mutex_unlock(&command_mutex);
     }
 
     if (comm_status == LINE_CLOSED)
@@ -217,8 +228,10 @@ static void *client_handler(void *sock_id)
         perror("[SERVER] Error in receiving data from client");
     }
 
+    pthread_mutex_lock(&command_mutex);
     handle_disconnect(client_sock);
     client_list_remove(me.id);
+    pthread_mutex_unlock(&command_mutex);
 
     close(client_sock);
     pthread_exit(NULL);

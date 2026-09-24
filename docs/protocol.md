@@ -70,7 +70,7 @@ ERROR <comando> <codice>
 | `BAD_ARGS`        | Numero di argomenti sbagliato, o argomento non numerico      |
 | `INVALID_NAME`    | Nome troppo lungo, vuoto o con caratteri non ammessi (§1.2)  |
 | `SERVER_FULL`     | Il server ha raggiunto il numero massimo di partite          |
-| `TOO_MANY_GAMES`  | Il client ha già creato il numero massimo di partite (3)     |
+| `TOO_MANY_GAMES`  | Il client ha già il numero massimo di partite (5, §5.1), stanze in attesa comprese |
 | `NO_USERNAME`     | Il client non ha ancora scelto lo username (§2)              |
 | `ALREADY_NAMED`   | Il client ha già scelto lo username e non può cambiarlo      |
 | `USERNAME_TAKEN`  | Un altro client connesso usa già quello username             |
@@ -83,8 +83,7 @@ ERROR <comando> <codice>
 | `NOT_PLAYER`      | Il client non è uno dei due giocatori di quella partita      |
 | `NOT_PLAYING`     | La partita non è in corso                                    |
 | `NOT_ACTIVE`      | La partita non è la partita attiva del client (§5.3)         |
-| `TOO_MANY_MATCHES`| Il client gioca già il numero massimo di partite (5, §5.1)   |
-| `JOINER_FULL`     | Chi chiedeva di entrare ha raggiunto quel numero nel frattempo |
+| `JOINER_FULL`     | Chi chiedeva di entrare ha raggiunto il numero massimo di partite nel frattempo |
 | `NOT_YOUR_TURN`   | Non è il turno del mittente                                  |
 | `INVALID_COLUMN`  | Colonna fuori dall'intervallo 0–6                            |
 | `COLUMN_FULL`     | La colonna è già piena                                       |
@@ -152,8 +151,8 @@ Crea una nuova partita in stato di attesa, con il mittente come creatore.
 `<name>` è il nome che la partita mostra nella lista (regole in §1.2). I nomi
 non sono univoci: due partite possono chiamarsi allo stesso modo, e si
 distinguono per id e per creatore.
-Un client può possedere al massimo **3** partite alla volta (`MAX_GAMES_PER_OWNER`
-in `include/game_registry.h`), in qualunque stato si trovino.
+La nuova stanza conta tra le partite del client, che sono al massimo **5**
+(§5.1): oltre il limite la risposta è `TOO_MANY_GAMES`.
 
 Risposte possibili:
 - `GAME_CREATED <game_id> <name>`
@@ -179,7 +178,9 @@ Esempio: `GAME_CREATED 7 Sfida_1`
 LIST_GAMES
 ```
 
-Chiede l'elenco delle partite in attesa di un secondo giocatore.
+Chiede l'elenco delle partite in attesa di un secondo giocatore, tranne quelle
+del mittente: alle proprie non ci si può unire, e si trovano con
+`LIST_MY_GAMES`.
 
 Risposta: `GAME_LIST`.
 
@@ -190,8 +191,8 @@ GAME_LIST <count> [<game_id> <name> <owner_username>]...
 ```
 
 Dopo `<count>` seguono esattamente `<count>` terne id/nome/creatore. Contiene al
-massimo 32 partite. Sono incluse solo le partite in attesa, perché sono le
-uniche a cui ci si può unire.
+massimo 32 partite. Sono incluse solo le partite in attesa degli altri client,
+perché sono le uniche a cui il mittente può unirsi.
 
 Se le partite non stanno tutte nel limite di 1024 byte della riga (§1.2), il
 server include solo quelle che ci stanno intere e `<count>` conta solo
@@ -210,34 +211,41 @@ GAME_LIST 2 3 Sfida_1 Player1 7 Rivincita! Player4
 LIST_MY_GAMES
 ```
 
-Chiede l'elenco delle partite di cui il mittente è il creatore (*owner*), in
-qualunque stato si trovino. Serve al creatore per ritrovare le proprie stanze
-senza doverle cercare in `GAME_LIST`, che mostra solo quelle in attesa.
+Chiede l'elenco delle partite di cui il mittente è un giocatore, come creatore
+o come secondo giocatore, in qualunque stato: le stanze che aspettano un
+avversario, le partite in corso e quelle terminate (§5.1). Non ci sono quelle
+in cui ha solo una richiesta di accesso in attesa.
 
 Risposta: `MY_GAME_LIST`.
 
 ### `MY_GAME_LIST` (server → client)
 
 ```
-MY_GAME_LIST <count> [<game_id> <name> <state>]...
+MY_GAME_LIST <count> [<game_id> <name> <opponent> <my_player> <state> <turn> <status>]...
 ```
 
-Dopo `<count>` seguono esattamente `<count>` terne id/nome/stato. `<state>` è
-uno tra:
+Dopo `<count>` seguono esattamente `<count>` gruppi di 7 token, in ordine di
+id crescente:
 
-- `WAITING`: la partita aspetta un secondo giocatore;
-- `PLAYING`: si sta giocando;
-- `FINISHED`: la partita è finita e la stanza esiste ancora.
+- `<name>`: il nome della stanza;
+- `<opponent>`: lo username dell'avversario, oppure `-` se la stanza aspetta
+  un avversario. In quel caso non va letto come un nome (`-` è anche uno
+  username valido): lo dice `<state>`;
+- `<my_player>`: `1` o `2`, il numero del mittente in quella partita;
+- `<state>`: `WAITING` (aspetta un avversario), `PLAYING` (si sta giocando)
+  oppure `FINISHED` (è finita e la stanza esiste ancora);
+- `<turn>`: chi deve muovere (`1` o `2`), come in `GAME_STATE`; `0` se la
+  partita non è in corso;
+- `<status>`: `HERE` o `AWAY` per l'avversario, come in `OPPONENT_STATUS`
+  (§5.3); sempre `HERE` per una stanza che aspetta un avversario.
 
-Sono elencate solo le partite di cui il mittente è **owner**, non quelle in cui
-gioca da secondo giocatore. Un utente ne ha al massimo 3 (`TOO_MANY_GAMES`,
-§3), quindi `<count>` va da 0 a 3 e la riga non viene mai troncata.
+`<count>` va da 0 a 5 (§5.1), quindi la riga non viene mai troncata.
 
 Esempi:
 
 ```
 MY_GAME_LIST 0
-MY_GAME_LIST 2 3 Sfida_1 PLAYING 7 Rivincita! WAITING
+MY_GAME_LIST 2 3 Sfida_1 Bruno 1 PLAYING 2 HERE 7 Rivincita! - 1 WAITING 0 HERE
 ```
 
 ## 4. Accesso a una partita
@@ -266,7 +274,7 @@ immediata: l'esito arriva con `JOIN_RESULT` quando il creatore decide.
 
 Errori possibili (inviati subito al joiner):
 `BAD_ARGS`, `NOT_FOUND`, `NOT_WAITING`, `SELF_JOIN`, `ALREADY_PENDING`,
-`TOO_MANY_MATCHES` (il joiner gioca già il numero massimo di partite, §5.1).
+`TOO_MANY_GAMES` (il joiner ha già il numero massimo di partite, §5.1).
 
 ### `JOIN_NOTIFY` (server → owner)
 
@@ -286,13 +294,13 @@ JOIN_RESPONSE <game_id> <accepted>
 
 `<accepted>` vale `1` per accettare, `0` per rifiutare.
 
-Se accettata, la partita passa in corso. Se rifiutata, resta in attesa e può
-ricevere nuove richieste.
+Se accettata, la partita passa in corso: il joiner riceve `JOIN_RESULT`, tutti
+i client `GAME_IN_PROGRESS` (§6) e i due giocatori `GAME_START`. Se rifiutata,
+resta in attesa e può ricevere nuove richieste. Il creatore può accettare anche
+se ha già il numero massimo di partite: la stanza conta già tra le sue (§5.1).
 
 Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_OWNER`, `NO_PENDING`,
-`TOO_MANY_MATCHES` (il creatore gioca già il numero massimo di partite: la
-richiesta resta in attesa, può rifiutarla o accettarla dopo aver lasciato una
-partita), `JOINER_FULL` (chi chiedeva ha raggiunto quel numero dopo aver
+`JOINER_FULL` (chi chiedeva ha raggiunto il numero massimo di partite dopo aver
 chiesto: la richiesta viene annullata e lui riceve `JOIN_RESULT <game_id> 0`).
 
 ### `JOIN_RESULT` (server → joiner)
@@ -310,18 +318,19 @@ Comunica al joiner la decisione del creatore (`1` accettato, `0` rifiutato).
 - Il creatore della partita è il **giocatore 1**, chi si unisce è il
   **giocatore 2**.
 - Il giocatore 1 muove per primo.
-- Un client può trovarsi in più partite **contemporaneamente**: crearne fino
-  a 3, e farsi accettare in altre. Ciascuna può essere in corso, e il server
-  non pone limiti al numero di partite in corso di un client: chiedere di
-  entrare, accettare una richiesta e votare la rivincita valgono anche a chi
-  sta già giocando altrove. Attivamente però se ne gioca una sola alla volta:
-  la partita attiva (§5.3).
-- Le partite in corso di un client sono al massimo **5** (`MAX_GAMES_PER_PLAYER`):
-  contano quelle di cui è un giocatore e che hanno un avversario, in corso o
-  terminate (una partita terminata conta finché il giocatore non la lascia).
-  Oltre il limite, chiedere di entrare dà `TOO_MANY_MATCHES`; accettare una
-  richiesta lo dà al creatore, e `JOINER_FULL` se è il joiner ad aver
-  raggiunto il limite nel frattempo. La rivincita non cambia il numero.
+- Un client può trovarsi in più partite **contemporaneamente**: crearne e
+  farsi accettare in altre, fino al limite qui sotto. Chiedere di entrare,
+  accettare una richiesta e votare la rivincita valgono anche a chi sta già
+  giocando altrove. Attivamente però se ne gioca una sola alla volta: la
+  partita attiva (§5.3).
+- Le partite di un client sono al massimo **5** (`MAX_GAMES_PER_PLAYER` in
+  `include/game_registry.h`): contano tutte quelle di cui è un giocatore, in
+  qualunque stato. Una stanza che aspetta un avversario conta, e una partita
+  terminata conta finché il giocatore non la lascia. Oltre il limite, creare
+  una partita o chiedere di entrare dà `TOO_MANY_GAMES`; se è il joiner ad
+  aver raggiunto il limite dopo aver chiesto, accettare la sua richiesta dà
+  `JOINER_FULL`. Accettare una richiesta, la rivincita e il passaggio della
+  stanza a chi resta (§8) non cambiano il numero.
 - Le partite di uno stesso client sono indipendenti. Ogni messaggio che le
   riguarda (`MOVE`, `GAME_STATE`, `GAME_OVER`...) porta l'id della sua partita
   e arriva solo ai due giocatori di quella partita, quindi il client sa a
@@ -419,46 +428,8 @@ messaggio, a meno che l'avversario non lasci la partita attiva (§5.3).
 
 Lo stato dipende solo da `SET_ACTIVE_GAME`, dall'avvio di una partita e
 dall'uscita da una partita (§5.3): una partita finita ancora aperta conta come
-partita attiva finché il giocatore non ne sceglie un'altra o esce.
-
-### `LIST_MY_MATCHES` (client → server)
-
-```
-LIST_MY_MATCHES
-```
-
-Chiede l'elenco delle partite che il mittente sta giocando (§5.1), come
-creatore o come secondo giocatore, in corso o terminate. Le stanze in attesa
-di un avversario non ci sono: si trovano con `LIST_MY_GAMES` (§3), che elenca
-le stanze possedute in qualunque stato ma senza avversario.
-
-Risposta: `MY_MATCH_LIST`.
-
-### `MY_MATCH_LIST` (server → client)
-
-```
-MY_MATCH_LIST <count> [<game_id> <name> <opponent> <my_player> <state> <turn> <status>]...
-```
-
-Dopo `<count>` seguono esattamente `<count>` gruppi di 7 token, in ordine di
-id crescente:
-
-- `<name>`: il nome della stanza; `<opponent>`: lo username dell'avversario;
-- `<my_player>`: `1` o `2`, il numero del mittente in quella partita;
-- `<state>`: `PLAYING` oppure `FINISHED`;
-- `<turn>`: chi deve muovere (`1` o `2`), come in `GAME_STATE`; `0` se la
-  partita è terminata;
-- `<status>`: `HERE` o `AWAY` per l'avversario, come in
-  `OPPONENT_STATUS`.
-
-`<count>` va da 0 a 5, quindi la riga non viene mai troncata.
-
-Esempi:
-
-```
-MY_MATCH_LIST 0
-MY_MATCH_LIST 2 3 Sfida_1 Bruno 1 PLAYING 2 HERE 7 Rivincita! Carla 2 FINISHED 0 AWAY
-```
+partita attiva finché il giocatore non ne sceglie un'altra o esce. Lo stesso
+stato compare in `MY_GAME_LIST` (§3).
 
 ### `GAME_START` (server → entrambi i giocatori)
 
@@ -529,9 +500,10 @@ la rivincita o lasciare la partita (§7), e sono liberi di giocare altre partite
 ## 6. Notifiche agli altri client
 
 Tutti i client connessi vengono informati dei cambi di stato delle partite
-senza doverli chiedere con `LIST_GAMES`. Queste notifiche **non** vengono
-inviate ai client coinvolti nella partita (creatore e, se c'è, secondo
-giocatore), che ricevono già i messaggi dettagliati delle sezioni precedenti.
+senza doverli chiedere con `LIST_GAMES`. `NEW_GAME` e `GAME_CLOSED` **non**
+vengono inviate ai client coinvolti nella partita (creatore e, se c'è, secondo
+giocatore), che ricevono già i messaggi dettagliati delle sezioni precedenti;
+`GAME_IN_PROGRESS` arriva invece a tutti.
 
 ### `NEW_GAME` (server → altri client)
 
@@ -547,13 +519,15 @@ quello di prima.
 
 Esempio: `NEW_GAME 7 Sfida_1 Player1`
 
-### `GAME_IN_PROGRESS` (server → altri client)
+### `GAME_IN_PROGRESS` (server → tutti i client)
 
 ```
 GAME_IN_PROGRESS <game_id>
 ```
 
-La partita è in corso e non è più possibile unirsi. Non viene inviato quando
+La partita è in corso e non è più possibile unirsi. Arriva anche ai due
+giocatori, subito prima di `GAME_START`: così il joiner la toglie dalla lista
+delle partite a cui unirsi come tutti gli altri. Non viene inviato quando
 riparte con una rivincita: gli altri client hanno già ricevuto `GAME_CLOSED`
 alla fine della partita precedente, quindi non ce l'hanno in lista.
 
@@ -643,7 +617,8 @@ non viene eliminata: valgono le stesse regole di una disconnessione (§8).
   diventa il creatore e la partita torna in attesa. Lui riceve
   `OPPONENT_LEFT`.
 - Il **creatore da solo** esce: la partita viene eliminata. È il modo di
-  eliminare una partita che si è creata, e libera un posto tra le 3 consentite.
+  eliminare una partita che si è creata, e libera un posto tra le 5 consentite
+  (§5.1).
 
 Uscire a metà partita non assegna la vittoria a nessuno.
 
@@ -651,8 +626,7 @@ Il mittente riceve `GAME_LEFT`. Da quel momento è un client come gli altri
 rispetto a quella partita, e ne riceve le notifiche di §6: per esempio
 `NEW_GAME` se la partita torna in lista, ma non `GAME_CLOSED` se è stata
 eliminata (gli basta `GAME_LEFT`). Un client può uscire da una partita e
-subito dopo unirsi a un'altra, o alla stessa (§5.1: gioca una partita alla
-volta).
+subito dopo unirsi a un'altra, o alla stessa.
 
 Errori possibili: `BAD_ARGS`, `NOT_FOUND`, `NOT_PLAYER` (anche per chi ha solo
 una richiesta di accesso in attesa, che non è ancora un giocatore).
@@ -683,10 +657,8 @@ connesso:
 | Secondo giocatore di una partita in corso o terminata | La partita resta e torna in attesa, con la griglia vuota. Il creatore riceve `OPPONENT_LEFT`, gli altri client `NEW_GAME` |
 | Creatore di una partita in corso o terminata  | Il secondo giocatore diventa il creatore e la partita torna in attesa, con la griglia vuota. Lui riceve `OPPONENT_LEFT`, gli altri client `NEW_GAME` con il suo username |
 
-Un client possiede al massimo 3 partite (§3): se il secondo giocatore che
-dovrebbe subentrare come creatore ne possiede già 3, non può farlo e la partita
-viene eliminata. In quel caso lui, come tutti gli altri client, riceve
-`GAME_CLOSED` (e non `OPPONENT_LEFT`).
+Il secondo giocatore subentra come creatore anche se ha già il numero massimo
+di partite: la partita contava già tra le sue (§5.1).
 
 Una partita sparisce solo quando non resta nessuno che possa possederla: se
 escono entrambi i giocatori, uno dopo l'altro, l'ultimo a restare è un creatore
@@ -713,9 +685,6 @@ OPPONENT_LEFT <game_id>
 L'avversario si è disconnesso o ha inviato `LEAVE_GAME`. La partita esiste
 ancora: adesso è in attesa di un nuovo giocatore, con la griglia vuota, e il
 destinatario ne è il creatore (anche se prima era il secondo giocatore).
-
-Se il destinatario non può subentrare come creatore perché ne possiede già 3
-(§8), non riceve questo messaggio ma `GAME_CLOSED`.
 
 ## 9. Esempio di sessione con netcat
 

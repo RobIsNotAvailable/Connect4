@@ -30,7 +30,7 @@ with Server() as srv:
     check("game 2 starts (A)", a.take_all(), [f"GAME_START {r} 1 Marco", f"GAME_STATE {r} 1 {EMPTY}"])
     check("game 2 starts (B)", b.take_all(), [f"GAME_START {r} 2 Anna", f"GAME_STATE {r} 1 {EMPTY}"])
     check("lobby clients hear nothing", c.take_all() + d.take_all(), [])
-    check("owner list: PLAYING", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida PLAYING")
+    check("owner list: PLAYING", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida Marco 1 PLAYING 1 HERE")
     check("player 2 cannot open", b.ask(f"MOVE {r} 3", "ERROR"), "ERROR MOVE NOT_YOUR_TURN")
     check("REMATCH while PLAYING", b.ask(f"REMATCH {r}", "ERROR"), "ERROR REMATCH NOT_FINISHED")
 
@@ -53,7 +53,7 @@ with Server() as srv:
     check("B: GAME_LEFT", b.take("GAME_LEFT"), f"GAME_LEFT {r}")
     check("A: OPPONENT_LEFT", a.take("OPPONENT_LEFT"), f"OPPONENT_LEFT {r}")
     check("A: rematch no longer possible", a.ask(f"REMATCH {r}", "ERROR"), "ERROR REMATCH NOT_FINISHED")
-    check("owner list: WAITING again", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida WAITING")
+    check("owner list: WAITING again", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida - 1 WAITING 0 HERE")
 
     # 6. C joins the reopened room and plays: A's vote from before must not count
     c.take_all(); a.take_all()

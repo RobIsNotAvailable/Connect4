@@ -3,8 +3,8 @@ import com.lso.view.OverlayPanel;
 import java.util.List;
 
 // Flows of the lobby and of the boxes: the selection in the tables, a join
-// request that arrives while a game starts, and the guard against double
-// clicks on a box that changes.
+// request that arrives while a game starts, the guard against double clicks on
+// a box that changes, and the tabs of the games.
 public class FlowTest extends Rig
 {
     public static void main(String[] args) throws Exception
@@ -32,24 +32,25 @@ public class FlowTest extends Rig
         lobbyButton("Join Selected");
         check("room gone: Join sends nothing", sent().isEmpty());
 
-        // A room of ours: Delete stays enabled across an update.
-        server("GAME_LIST 2 3 roomA Bob 6 mine Anna");
-        select("gameTable", 1);
+        // A room of ours that waits, in My Games: Delete stays enabled across
+        // an update, and there is nothing to resume.
+        server("MY_GAME_LIST 1 6 mine - 1 WAITING 0 HERE");
+        select("myGamesTable", 0);
         check("own room: Delete enabled", lobbyButtonEnabled("Delete Room"));
-        server("GAME_LIST 2 3 roomA Bob 6 mine Anna");
-        check("own room: still selected", selected("gameTable") == 1, "" + selected("gameTable"));
+        server("MY_GAME_LIST 1 6 mine - 1 WAITING 0 HERE");
+        check("own room: still selected", selected("myGamesTable") == 0, "" + selected("myGamesTable"));
         check("own room: Delete still enabled", lobbyButtonEnabled("Delete Room"));
+        check("own room: nothing to resume", !lobbyButtonEnabled("Resume"));
 
-        // My Games too, and an update of the other table does not take its
-        // selection away (the two tables select one row between them).
-        server("MY_MATCH_LIST 2 8 g8 Bob 1 PLAYING 1 HERE 9 g9 Carl 2 PLAYING 1 HERE");
-        server("MY_GAME_LIST 1 6 mine WAITING");
+        // The games in progress too, and an update of the other table does not
+        // take the selection away (the two tables select one row between them).
+        server("MY_GAME_LIST 3 6 mine - 1 WAITING 0 HERE 8 g8 Bob 1 PLAYING 1 HERE 9 g9 Carl 2 PLAYING 1 HERE");
         select("myGamesTable", 1);
         check("My Games: one row selected in all", selected("myGamesTable") == 1 && selected("gameTable") == -1);
-        server("MY_MATCH_LIST 2 8 g8 Bob 1 PLAYING 2 HERE 9 g9 Carl 2 PLAYING 2 HERE");
+        server("MY_GAME_LIST 3 6 mine - 1 WAITING 0 HERE 8 g8 Bob 1 PLAYING 2 HERE 9 g9 Carl 2 PLAYING 2 HERE");
         check("My Games: still selected", selected("myGamesTable") == 1, "" + selected("myGamesTable"));
         check("My Games: Resume enabled", lobbyButtonEnabled("Resume"));
-        server("GAME_LIST 2 3 roomA Bob 6 mine Anna");
+        server("GAME_LIST 1 3 roomA Bob");
         check("My Games: kept after a GAME_LIST", selected("myGamesTable") == 1 && selected("gameTable") == -1);
         sent();
 
@@ -83,12 +84,17 @@ public class FlowTest extends Rig
         check("the error comes back over the board", shown() && message().equals("That room no longer exists."), box());
         click("OK");
 
-        // The Game Over box is closed by the rematch that starts.
+        // The Game Over box is closed by the rematch that starts, and the
+        // board is the one of the new game.
+        server("GAME_STATE 11 0 " + EMPTY_BOARD);
         server("GAME_OVER 11 WIN");
         click("Rematch");
         server("GAME_START 11 1 Gina");
         server("GAME_STATE 11 1 " + EMPTY_BOARD);
         check("rematch: the box closes", !shown(), box());
+        sent();
+        gameButton("Col 1");
+        check("rematch: the new game takes moves", sent().equals(List.of("MOVE 11 0")));
 
         // ---- A double click on Rematch: the box changes under the mouse,
         // and the second click must not hit "Leave room".
@@ -119,19 +125,57 @@ public class FlowTest extends Rig
         server("GAME_STATE 13 1 " + EMPTY_BOARD);
         server("OPPONENT_LEFT 13");
         check("opponent left: two choices", shown() && message().equals(
-              "Your opponent left the room. Home keeps it open for another player, Leave room deletes it."), box());
+              "Your opponent left the room, you'll be redirected to the home screen. Delete the room?"), box());
         sent();
-        click("Home");
+        click("No, keep it");
         List<String> home = sent();
-        check("Home: the room is kept", !home.contains("LEAVE_GAME 13") && !shown(), home + " / " + box());
-        check("Home: back in the lobby", home.contains("SET_ACTIVE_GAME 0") && home.contains("LIST_MY_MATCHES"), home.toString());
+        check("keep it: the room is kept", !home.contains("LEAVE_GAME 13") && !shown(), home + " / " + box());
+        check("keep it: back in the lobby", home.contains("SET_ACTIVE_GAME 0") && home.contains("LIST_MY_GAMES"), home.toString());
+        check("keep it: the tab of the game is gone", !tabTitles().contains("VS Ivy"), tabTitles().toString());
 
         server("GAME_START 13 1 Jay");
         server("GAME_STATE 13 1 " + EMPTY_BOARD);
+        check("a new opponent in the room: a tab with the new name",
+              tabTitles().contains("VS Jay") && !tabTitles().contains("VS Ivy"), tabTitles().toString());
         server("OPPONENT_LEFT 13");
-        click("Leave room");
-        check("Leave room: the room is deleted", sent().contains("LEAVE_GAME 13"));
-        check("Leave room: back in the lobby", !shown(), box());
+        click("Yes, delete it");
+        check("delete it: the room is deleted", sent().contains("LEAVE_GAME 13"));
+        check("delete it: back in the lobby", !shown(), box());
+        check("delete it: the tab is gone", !tabTitles().contains("VS Jay"), tabTitles().toString());
+
+        // ---- The tabs: the one the player picks is the game on screen
+
+        server("GAME_START 20 1 Kim");
+        server("GAME_STATE 20 1 " + EMPTY_BOARD);
+        server("GAME_START 21 2 Lea");
+        server("GAME_STATE 21 1 " + EMPTY_BOARD);
+        check("two more games, two more tabs", tabTitles().containsAll(List.of("VS Kim", "VS Lea")), tabTitles().toString());
+        sent();
+        selectTab(21);
+        check("tab picked: the server is told", sent().equals(List.of("SET_ACTIVE_GAME 21")));
+
+        // What happens in the game behind is written on the board on screen.
+        server("GAME_STATE 20 2 " + EMPTY_BOARD);
+        server("GAME_STATE 20 1 " + EMPTY_BOARD);
+        check("game behind: the line is on the board on screen", notification().equals("Your turn against Kim"), notification());
+        sent();
+
+        server("GAME_STATE 21 0 " + EMPTY_BOARD);
+        server("GAME_OVER 21 WIN");
+        check("tab picked: its Game Over box", shown() && message().startsWith("You won"), box());
+        click("Rematch");
+        sent();
+        server("ERROR MOVE NOT_ACTIVE");
+        check("NOT_ACTIVE: the game on screen is made active again", sent().equals(List.of("SET_ACTIVE_GAME 21")));
+
+        // The tab of a finished game brings its box back, as Resume does.
+        click("Home");
+        server("MY_GAME_LIST 2 20 r20 Kim 1 PLAYING 1 HERE 21 r21 Lea 2 FINISHED 0 HERE");
+        select("myGamesTable", 0);
+        lobbyButton("Resume");
+        check("Resume: the game has no box", !shown(), box());
+        selectTab(21);
+        check("finished game's tab: its box again", shown() && message().equals("Waiting for the opponent's decision..."), box());
 
         finish("FlowTest");
     }

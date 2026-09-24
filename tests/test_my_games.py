@@ -1,64 +1,65 @@
-"""LIST_MY_GAMES / MY_GAME_LIST (docs/protocol.md §3)."""
+"""LIST_MY_GAMES / MY_GAME_LIST (docs/protocol.md §3): every room and game the
+client is a player of, the ones that still wait for an opponent included."""
 import time
 
-from harness import Server, check, finish
+from harness import Server, check, drain, finish, new_room, play_win, start_game
 
 with Server() as srv:
-    a, b = srv.client(), srv.client()
+    a, b, c = srv.client(), srv.client(), srv.client("Carla")
 
     # no username yet
     check("no username -> NO_USERNAME", a.ask("LIST_MY_GAMES", "ERROR"), "ERROR LIST_MY_GAMES NO_USERNAME")
     a.send("SET_USERNAME Anna")
-    b.send("SET_USERNAME Marco")
-
-    # nothing owned yet
+    b.send("SET_USERNAME Bruno")
     check("empty list", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
 
-    # two rooms, both waiting
-    r1 = a.ask("CREATE_GAME Sfida_1", "GAME_CREATED").split()[1]
-    r2 = a.ask("CREATE_GAME Rivincita!", "GAME_CREATED").split()[1]
+    # rooms that wait: no opponent ('-'), turn 0
+    r1, r2 = new_room(a, "Prima"), new_room(a, "Rivincita!")
     check("two waiting rooms", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
-          f"MY_GAME_LIST 2 {r1} Sfida_1 WAITING {r2} Rivincita! WAITING")
-    check("other client sees none of them", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
+          f"MY_GAME_LIST 2 {r1} Prima - 1 WAITING 0 HERE {r2} Rivincita! - 1 WAITING 0 HERE")
+    check("another client has none of them", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
 
-    # PLAYING
+    # a request that is pending is not a game of the joiner yet
     b.send(f"JOIN_GAME {r1}")
+    check("the joiner, request pending: nothing", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
+
+    # PLAYING: each player sees it with the other one as opponent
     a.send(f"JOIN_RESPONSE {r1} 1")
-    check("owner: PLAYING", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
-          f"MY_GAME_LIST 2 {r1} Sfida_1 PLAYING {r2} Rivincita! WAITING")
-    check("player2 is not owner: still empty", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
+    drain(a, b, c)
+    check("owner: player 1", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
+          f"MY_GAME_LIST 2 {r1} Prima Bruno 1 PLAYING 1 HERE {r2} Rivincita! - 1 WAITING 0 HERE")
+    check("joiner: player 2", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r1} Prima Anna 2 PLAYING 1 HERE")
+    check("someone else: nothing", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
 
-    # FINISHED (A is player 1 and moves first: vertical four in column 0)
-    for _ in range(3):
-        a.send(f"MOVE {r1} 0")
-        b.send(f"MOVE {r1} 1")
+    # the turn, and whether the opponent's active game is this one (HERE) or not (AWAY)
+    start_game(a, c, r2)  # Anna is in the middle of r1: it stays her active game
     a.send(f"MOVE {r1} 0")
-    check("A got WIN", a.take("GAME_OVER"), f"GAME_OVER {r1} WIN")
-    check("owner: FINISHED", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
-          f"MY_GAME_LIST 2 {r1} Sfida_1 FINISHED {r2} Rivincita! WAITING")
+    drain(a, b, c)
+    check("two games, by id; the turn moved on in r1", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
+          f"MY_GAME_LIST 2 {r1} Prima Bruno 1 PLAYING 2 HERE {r2} Rivincita! Carla 1 PLAYING 1 HERE")
+    check("Carla sees Anna away (she plays r1)", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
+          f"MY_GAME_LIST 1 {r2} Rivincita! Anna 2 PLAYING 1 AWAY")
 
-    # the cap: a third room is fine, a fourth is refused, the list has exactly 3
-    r3 = a.ask("CREATE_GAME Terza", "GAME_CREATED").split()[1]
-    check("4th room refused", a.ask("CREATE_GAME Quarta", "ERROR"), "ERROR CREATE_GAME TOO_MANY_GAMES")
-    check("three rooms listed", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
-          f"MY_GAME_LIST 3 {r1} Sfida_1 FINISHED {r2} Rivincita! WAITING {r3} Terza WAITING")
+    # FINISHED: the game stays listed until its players leave it
+    a.send(f"SET_ACTIVE_GAME {r2}")
+    check("r2 is played to the end (Anna wins)", play_win(a, c, r2)[0], f"GAME_OVER {r2} WIN")
+    drain(a, b, c)
+    check("FINISHED, turn 0", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r2} Rivincita! Anna 2 FINISHED 0 HERE")
 
-    # the owner leaves a room where B is player 2: B becomes its owner, WAITING
+    # the owner leaves a game where Bruno is player 2: he owns it now, and it waits again
     a.send(f"LEAVE_GAME {r1}")
-    check("A lost room 1", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
-          f"MY_GAME_LIST 2 {r2} Rivincita! WAITING {r3} Terza WAITING")
-    check("B now owns room 1 (WAITING)", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"),
-          f"MY_GAME_LIST 1 {r1} Sfida_1 WAITING")
+    drain(a, b, c)
+    check("Anna left r1", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r2} Rivincita! Carla 1 FINISHED 0 HERE")
+    check("Bruno owns r1 now, waiting", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r1} Prima - 1 WAITING 0 HERE")
 
-    # a waiting room the owner leaves is deleted and disappears from the list
-    a.send(f"LEAVE_GAME {r2}")
-    check("deleted room gone", a.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r3} Terza WAITING")
+    # a waiting room its owner leaves is deleted
+    b.send(f"LEAVE_GAME {r1}")
+    check("deleted room gone", b.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
 
-    # a new client starts with nothing, even after A disconnected
+    # Anna disconnects: Carla owns r2, waiting; a new client starts with nothing
     a.close()
     time.sleep(0.3)
-    c = srv.client()
-    c.send("SET_USERNAME Carla")
-    check("new client, empty list", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
+    check("Carla owns r2 now, waiting", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r2} Rivincita! - 1 WAITING 0 HERE")
+    check("new client, empty list", srv.client("Dario").ask("LIST_MY_GAMES", "MY_GAME_LIST"), "MY_GAME_LIST 0")
 
 finish("test_my_games")
