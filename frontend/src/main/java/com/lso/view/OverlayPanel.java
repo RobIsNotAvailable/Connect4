@@ -6,6 +6,7 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.GridBagLayout;
+import java.awt.KeyboardFocusManager;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseMotionAdapter;
@@ -15,6 +16,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
@@ -33,6 +35,7 @@ public class OverlayPanel extends JPanel
     public static final int CLICK_GUARD_MILLIS = 300;
 
     private long openedAt; // System.nanoTime() of the last open()
+    private Component focusBefore; // what had the focus before the box opened
 
     private JLabel titleLabel;
     private JLabel messageLabel;
@@ -43,6 +46,10 @@ public class OverlayPanel extends JPanel
     {
         setLayout(new GridBagLayout());
         setOpaque(false);
+
+        // The focus comes into the box when it opens (see open), so the keys
+        // can't reach the buttons behind it, and Tab goes round its own only.
+        setFocusCycleRoot(true);
 
         // A glass pane only intercepts the mouse if it listens to it,
         // otherwise the clicks would go through to the components below.
@@ -143,6 +150,10 @@ public class OverlayPanel extends JPanel
     public void close()
     {
         setVisible(false);
+        if(focusBefore != null)
+        {
+            focusBefore.requestFocusInWindow();
+        }
     }
 
     // A long message wraps at a fixed width instead of stretching the card.
@@ -162,6 +173,14 @@ public class OverlayPanel extends JPanel
     private void open(String title, String message, String inputText, JButton... buttons)
     {
         boolean withInput = (inputText != null);
+
+        // Where the focus goes back when the box closes: not a button of a
+        // box that this one replaces.
+        Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        if(owner != null && !SwingUtilities.isDescendingFrom(owner, this))
+        {
+            focusBefore = owner;
+        }
 
         openedAt = System.nanoTime();
         titleLabel.setText(title);
@@ -185,9 +204,7 @@ public class OverlayPanel extends JPanel
         revalidate();
         repaint();
 
-        if(withInput)
-        {
-            SwingUtilities.invokeLater(() -> inputField.requestFocusInWindow());
-        }
+        JComponent focus = withInput ? inputField : buttons[0];
+        SwingUtilities.invokeLater(focus::requestFocusInWindow);
     }
 }

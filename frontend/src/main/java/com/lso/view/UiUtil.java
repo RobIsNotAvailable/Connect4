@@ -8,6 +8,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Insets;
 import java.awt.event.ActionEvent;
+import java.util.Map;
 
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
@@ -29,6 +30,7 @@ import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
 import org.kordamp.ikonli.swing.FontIcon;
 
 import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatLaf;
 
 public class UiUtil
 {
@@ -42,17 +44,31 @@ public class UiUtil
 
     public static final Color ACCENT_SECONDARY = new Color(107, 88, 75);
 
-    public static final Color ERROR_RED = new Color (224, 58, 58);
+    // The discs, red and yellow as in the real game, and the empty holes:
+    // darker than the background, so both colours stand out.
+    public static final Color PLAYER1_RED = new Color(224, 58, 58);
 
-    public static final Color SUCCESS_GREEN = new Color (58, 224, 97);
+    public static final Color PLAYER2_YELLOW = new Color(242, 194, 48);
+
+    public static final Color BOARD_HOLE = new Color(20, 20, 20);
 
     // FlatLaf, dark, with the colours above for what it draws itself: the
-    // headers of the tables and the scroll bars.
+    // accent (underline of the selected tab, focus rings) instead of its
+    // blue, the selected rows, the headers of the tables and the scroll bars.
     public static void installLookAndFeel()
     {
+        FlatLaf.setGlobalExtraDefaults(Map.of("@accentColor", String.format("#%06x", ACCENT.getRGB() & 0xFFFFFF)));
         FlatDarkLaf.setup();
         JFrame.setDefaultLookAndFeelDecorated(true);
 
+        // The same whether the table has the focus or not.
+        UIManager.put("Table.selectionBackground", ACCENT_SECONDARY);
+        UIManager.put("Table.selectionForeground", Color.WHITE);
+        UIManager.put("Table.selectionInactiveBackground", ACCENT_SECONDARY);
+        UIManager.put("Table.selectionInactiveForeground", Color.WHITE);
+        UIManager.put("TextField.selectionForeground", BACKGROUND_BLACK); // on the accent
+        UIManager.put("Button.toolbar.hoverBackground", ACCENT_SECONDARY); // createStyledButton
+        UIManager.put("Button.toolbar.pressedBackground", ACCENT_SECONDARY.darker());
         UIManager.put("TableHeader.background", ACCENT_SECONDARY);
         UIManager.put("TableHeader.foreground", Color.WHITE);
         UIManager.put("TableHeader.separatorColor", ACCENT_SECONDARY);
@@ -80,7 +96,7 @@ public class UiUtil
     // The colour of the discs of player 1 or 2.
     public static Color playerColor(int player)
     {
-        return (player == 1) ? ERROR_RED : SUCCESS_GREEN;
+        return (player == 1) ? PLAYER1_RED : PLAYER2_YELLOW;
     }
 
     public static Color withAlpha(Color color, int alpha)
@@ -94,10 +110,11 @@ public class UiUtil
         button.setFont(new Font("Arial", Font.BOLD, 18));
         button.setForeground(Color.WHITE);
 
-        button.setContentAreaFilled(false);
-        button.setBorderPainted(false);
-        button.setFocusPainted(false);
-        button.setFocusable(false);
+        // No box around it: FlatLaf paints only a background under the mouse
+        // or the click, and the focus ring when it is reached with Tab (a
+        // mouse click does not give it the focus, so no ring is left behind).
+        button.putClientProperty("JButton.buttonType", "borderless");
+        button.setRequestFocusEnabled(false);
         button.setMargin(new Insets(10, 15, 15, 15));
 
         button.setCursor(new Cursor(Cursor.HAND_CURSOR));

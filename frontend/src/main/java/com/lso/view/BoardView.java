@@ -106,7 +106,7 @@ class BoardView extends JPanel
                 int y = row * cellHeight + (cellHeight - diameter) / 2;
 
                 char cell = session.cell(row, col);
-                g2d.setColor(cell == '.' ? UiUtil.BACKGROUND_GRAY : UiUtil.playerColor(cell - '0'));
+                g2d.setColor(cell == '.' ? UiUtil.BOARD_HOLE : UiUtil.playerColor(cell - '0'));
                 g2d.fillOval(x, y, diameter, diameter);
 
                 // See-through, on top of the empty hole.

@@ -30,7 +30,7 @@ public class GhostTest extends Rig
     }
 
     // The board as the player sees it, one character per hole, rows split by
-    // '/': '.' empty, 'R' and 'G' discs, 'r' and 'g' ghosts, '?' anything else.
+    // '/': '.' empty, 'R' and 'Y' discs, 'r' and 'y' ghosts, '?' anything else.
     static String holes() throws Exception
     {
         StringBuilder seen = new StringBuilder();
@@ -50,11 +50,11 @@ public class GhostTest extends Rig
                     int rgb = image.getRGB(col * cellWidth + cellWidth / 2, row * cellHeight + cellHeight / 2);
                     int r = (rgb >> 16) & 255, gr = (rgb >> 8) & 255, b = rgb & 255;
                     char hole;
-                    if(r == 84 && gr == 84 && b == 84)        hole = '.'; // UiUtil.BACKGROUND_GRAY
-                    else if(r == 224 && gr == 58 && b == 58)  hole = 'R'; // UiUtil.ERROR_RED
-                    else if(r == 58 && gr == 224 && b == 97)  hole = 'G'; // UiUtil.SUCCESS_GREEN
-                    else if(r > gr + 30 && r < 200)           hole = 'r'; // red seen through
-                    else if(gr > r + 30 && gr < 200)          hole = 'g'; // green seen through
+                    if(r == 20 && gr == 20 && b == 20)        hole = '.'; // UiUtil.BOARD_HOLE
+                    else if(r == 224 && gr == 58 && b == 58)  hole = 'R'; // UiUtil.PLAYER1_RED
+                    else if(r == 242 && gr == 194 && b == 48) hole = 'Y'; // UiUtil.PLAYER2_YELLOW
+                    else if(r > gr + 30 && gr < 40)           hole = 'r'; // red seen through
+                    else if(gr > b + 20 && r < 200)           hole = 'y'; // yellow seen through
                     else                                      hole = '?';
                     seen.append(hole);
                 }
@@ -83,7 +83,7 @@ public class GhostTest extends Rig
                 }
                 else
                 {
-                    picture.append(cell == '1' ? 'R' : cell == '2' ? 'G' : '.');
+                    picture.append(cell == '1' ? 'R' : cell == '2' ? 'Y' : '.');
                 }
             }
             if(r < 5)
@@ -200,7 +200,7 @@ public class GhostTest extends Rig
         onScreenBoard();
         checkHoles("new game on screen: no ghost yet", noGhost(EMPTY_BOARD));
         move(150);
-        checkHoles("player 2: green ghost", expect(EMPTY_BOARD, 5, 1, 'g'));
+        checkHoles("player 2: yellow ghost", expect(EMPTY_BOARD, 5, 1, 'y'));
 
         sent();
         edt(() -> board.dispatchEvent(new MouseEvent(board, MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
