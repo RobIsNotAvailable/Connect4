@@ -59,7 +59,8 @@ public class OverlayPanel extends JPanel
         messageLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
 
         inputField = new JTextField(20);
-        UiUtil.styleComponent(inputField);
+        inputField.setBackground(UiUtil.BACKGROUND_GRAY);
+        inputField.setForeground(Color.WHITE);
         inputField.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(UiUtil.ACCENT, 2),
             BorderFactory.createEmptyBorder(6, 8, 6, 8)
@@ -110,7 +111,7 @@ public class OverlayPanel extends JPanel
         {
             final int index = i;
             buttons[i] = UiUtil.createStyledButton(buttonTexts[i]);
-            UiUtil.addListener(buttons[i], e ->
+            buttons[i].addActionListener(e ->
             {
                 if(!justOpened())
                 {
@@ -131,7 +132,7 @@ public class OverlayPanel extends JPanel
                           String cancelText, Runnable onCancel)
     {
         JButton submitButton = UiUtil.createStyledButton(submitText);
-        UiUtil.addListener(submitButton, e ->
+        submitButton.addActionListener(e ->
         {
             if(!justOpened())
             {
@@ -140,7 +141,7 @@ public class OverlayPanel extends JPanel
         });
 
         JButton cancelButton = UiUtil.createStyledButton(cancelText);
-        UiUtil.addListener(cancelButton, e ->
+        cancelButton.addActionListener(e ->
         {
             if(!justOpened())
             {

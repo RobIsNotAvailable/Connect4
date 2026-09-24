@@ -11,7 +11,6 @@ import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
-import java.awt.event.ActionListener;
 
 import javax.swing.AbstractAction;
 import javax.swing.ActionMap;
@@ -21,7 +20,6 @@ import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
-import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
@@ -48,15 +46,6 @@ public class UiUtil
 
     public static final Color SUCCESS_GREEN = new Color (58, 224, 97);
 
-    public static class BlankPanel extends JPanel
-    {
-        public BlankPanel(Dimension dimension)
-        {
-            setOpaque(false);
-            setPreferredSize(dimension);
-        }
-    }
-
     public static JButton createStyledButton(String text)
     {
         JButton button = new JButton(text);
@@ -82,18 +71,6 @@ public class UiUtil
         label.setFont(new Font("Arial", Font.BOLD, 20));
 
         return label;
-    }
-
-    public static void styleComponent(JComponent component)
-    {
-        component.setBackground(UiUtil.BACKGROUND_GRAY);
-        component.setBorder(BorderFactory.createLineBorder(UiUtil.ACCENT, 2));
-        component.setForeground(Color.WHITE);
-    }
-
-    public static void addListener(JButton button, ActionListener listener)
-    {
-        button.addActionListener(listener);
     }
 
 
@@ -160,10 +137,6 @@ public class UiUtil
         @Override
         public void paintIcon(Component c, Graphics g, int x, int y)
         {
-            if(color == null) 
-            {
-                return;
-            }
             Graphics2D g2d = (Graphics2D) g.create();
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2d.setColor(color);
@@ -198,7 +171,6 @@ public class UiUtil
             setFont(getFont().deriveFont(20f));
             setRowHeight(30);
             setShowGrid(false);
-            setEnabled(false);
 
             JTableHeader header = getTableHeader();
             header.setBackground(UiUtil.ACCENT_SECONDARY);

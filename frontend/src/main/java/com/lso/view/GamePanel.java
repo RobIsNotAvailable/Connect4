@@ -32,8 +32,6 @@ public class GamePanel extends JPanel
     // The game on screen. All the state (board, turn, names) is in it; the
     // panel only draws it and turns the clicks into messages.
     private GameSession session;
-    private JButton homeBtn;
-    private JButton abandonBtn;
     private JLabel awayLabel;
     private JLabel notificationLabel;
     private javax.swing.Timer notificationTimer;
@@ -64,13 +62,13 @@ public class GamePanel extends JPanel
         // Home leaves the board and keeps the game, which waits as it is;
         // Abandon gives it up. Even margins, unlike the other buttons, so the
         // text sits on the same line as the names.
-        homeBtn = UiUtil.createStyledButton("Home");
+        JButton homeBtn = UiUtil.createStyledButton("Home");
         homeBtn.setMargin(new Insets(12, 15, 12, 15));
-        UiUtil.addListener(homeBtn, e -> controller.goHome());
+        homeBtn.addActionListener(e -> controller.goHome());
 
-        abandonBtn = UiUtil.createStyledButton("Abandon");
+        JButton abandonBtn = UiUtil.createStyledButton("Abandon");
         abandonBtn.setMargin(new Insets(12, 15, 12, 15));
-        UiUtil.addListener(abandonBtn, e ->
+        abandonBtn.addActionListener(e ->
         {
             if(session != null)
             {
@@ -127,7 +125,7 @@ public class GamePanel extends JPanel
             JButton btn = UiUtil.createStyledButton("Col " + (i + 1));
             UiUtil.addKeyBinding(btn, String.valueOf(i + 1));
             
-            UiUtil.addListener(btn, e -> play(col));
+            btn.addActionListener(e -> play(col));
             controlsPanel.add(btn);
         }
 
@@ -207,16 +205,9 @@ public class GamePanel extends JPanel
         if(session == null)
             return;
         
-        if(session.getPlayerName(1).equals(controller.getUsername()))
-        {
-            player1Label.setText(session.getPlayerName(1) + " (You)");
-            player2Label.setText(session.getPlayerName(2));
-        }
-        else 
-        {
-            player1Label.setText(session.getPlayerName(1));
-            player2Label.setText(session.getPlayerName(2) + " (You)");
-        }
+        int me = session.getMyPlayer();
+        player1Label.setText(session.getPlayerName(1) + (me == 1 ? " (You)" : ""));
+        player2Label.setText(session.getPlayerName(2) + (me == 2 ? " (You)" : ""));
         
         showTurn(session.getTurn());
 

@@ -31,27 +31,19 @@ void line_reader_init(LineReader *reader, int sock);
 // 'out' must be at least MAX_LINE bytes.
 int recv_line(LineReader *reader, char *out);
 
-// Formats a line printf-style, appends '\n' and sends all of it, looping
-// over partial send()s. Returns 0 on success, -1 if the formatted line
-// doesn't fit in MAX_LINE or send() fails.
+// Formats a line printf-style from a va_list (so that the variadic
+// client_send_line can forward its arguments), appends '\n' and sends all of
+// it, looping over partial send()s. Returns 0 on success, -1 if the formatted
+// line doesn't fit in MAX_LINE or send() fails.
 //
 // Not synchronized: if several threads may write to the same socket, the
 // caller must hold a lock around the call so lines don't interleave.
-int send_line(int sock, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
-
-// Same as send_line, taking a va_list: lets other variadic functions
-// (e.g. the server's locked client_send_line) forward their arguments.
 int vsend_line(int sock, const char *fmt, va_list args) __attribute__((format(printf, 2, 0)));
 
-// AGGIUNTA (migrazione al protocollo testuale): client.c e server.c devono
-// entrambi spezzare una riga ricevuta in token e validare gli argomenti
-// numerici allo stesso modo, quindi questi due helper vivono qui invece di
-// essere duplicati nei due file.
-
-// Maximum number of whitespace-separated tokens split_args() extracts from
-// one line, command included. Covers every fixed-arity message in
-// docs/protocol.md (the longest is "ERROR <comando> <codice>", 3 tokens);
-// GAME_LIST's variable-length tail is parsed separately by whoever needs it.
+// Maximum number of space-separated tokens split_args() extracts from one
+// line, command included: the longest command has 3 (e.g. MOVE <game_id>
+// <column>), and one more lets a handler see an extra argument and answer
+// BAD_ARGS instead of silently ignoring it.
 #define MAX_ARGS 4
 
 // Splits 'line' in place (each separating space becomes '\0') into up to
@@ -70,7 +62,7 @@ int parse_int(const char *s, int *out);
 // Checks 's' is a legal name token (docs/protocol.md §1.2): between 1 and
 // 'max_len' characters, each a printable ASCII character other than the
 // space (0x21-0x7E). Returns 1 if valid, 0 otherwise. Meant for text the
-// client picks (game names, later usernames), so the caller can reject it
+// client picks (room names and usernames), so the caller can reject it
 // before copying it into a fixed-size buffer.
 int is_valid_name(const char *s, size_t max_len);
 

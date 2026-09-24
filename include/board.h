@@ -10,7 +10,7 @@
 // numbers used everywhere else in the protocol (GAME_START's
 // <your_player>, GAME_STATE's <turn>): both are already 1/2, so once a
 // cell isn't empty, its wire character is just '0' + the cell's value
-// (see board_to_string, added with the string format). Must keep
+// (see board_to_string). Must keep
 // PLAYER_NONE == 0: board_init relies on a zeroed struct meaning "all
 // empty", same trick as GAME_EMPTY in protocol.h.
 typedef enum
@@ -20,10 +20,9 @@ typedef enum
     PLAYER_2 = 2
 } CellPlayer;
 
-// A Connect4 grid. Pure game state - no socket, no thread-safety: one
-// board belongs to one game, mutated only by whichever thread is
-// handling that game's moves (docs/protocol.md - a client plays at most
-// one game at a time), so nothing here needs a lock.
+// A Connect4 grid. Pure game state - no socket, no thread-safety: a board
+// lives inside its Game and is only touched under the game registry's
+// lock, so nothing here needs one of its own.
 typedef struct
 {
     CellPlayer cells[BOARD_ROWS][BOARD_COLS];

@@ -14,7 +14,7 @@
 // §5.3): 0 when it has none. A client can be in several games, but MOVE is only
 // accepted in the active one. Unlike the other fields it changes while the
 // client is connected and is read by other clients' handlers, so it is only
-// accessed through client_list_get/set/clear_active_game, which lock.
+// accessed through client_list_get/set_active_game, which lock.
 typedef struct
 {
     int id;
@@ -68,11 +68,6 @@ int client_list_get_active_game(int sock);
 // Makes 'game_id' the active game of the client connected on 'sock' (0 =
 // none). Does nothing if no client is connected on that socket.
 void client_list_set_active_game(int sock, int game_id);
-
-// Sets the active game of the client connected on 'sock' to 0, but only if it
-// is 'game_id': used when that game stops existing for the client (it left,
-// or the game was closed), without touching a different game it is playing.
-void client_list_clear_active_game(int sock, int game_id);
 
 // Looks up the username of the client owning the given socket. Returns 1
 // and fills 'out' if found, 0 otherwise (e.g. the client disconnected

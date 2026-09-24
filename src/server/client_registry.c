@@ -321,16 +321,3 @@ void client_list_set_active_game(int sock, int game_id)
 
     pthread_mutex_unlock(&clients.mutex);
 }
-
-void client_list_clear_active_game(int sock, int game_id)
-{
-    pthread_mutex_lock(&clients.mutex);
-
-    Client *client = client_by_sock_locked(sock);
-    if (client && client->active_game == game_id)
-    {
-        client->active_game = 0;
-    }
-
-    pthread_mutex_unlock(&clients.mutex);
-}

@@ -1,14 +1,8 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-// MIGRAZIONE: questo header conteneva anche CommandType/Header/Packet e gli
-// struct dei singoli payload (JoinRequest, Welcome, GameList, ...), usati
-// per spedire un Packet binario intero con send()/recv(). Ora che client e
-// server parlano il protocollo testuale di docs/protocol.md (una riga
-// ASCII per messaggio, vedi net.h), quei tipi non servono più e sono stati
-// rimossi: il comando è il primo token della riga, non un campo di uno
-// struct. Qui restano solo le costanti e il GameInfo usato internamente
-// dal server per costruire la risposta a LIST_GAMES.
+// The constants of the text protocol (docs/protocol.md) and the types the
+// server shares between its modules to build the replies.
 
 #define PORT 8080
 
@@ -44,16 +38,13 @@ typedef enum
 #define MAX_GAMES_IN_LIST 32
 
 // One entry used by the server to build a GAME_LIST reply (see
-// docs/protocol.md §3). Purely in-memory bookkeeping now, not a wire
-// struct, so no __attribute__((packed)) needed anymore. The owner is
-// identified by socket: the caller looks its username up in the client
-// registry when it builds the line.
+// docs/protocol.md §3). The owner is identified by socket: the caller looks
+// its username up in the client registry when it builds the line.
 typedef struct
 {
     int game_id;
     char name[ROOM_NAME_LEN];
     int owner_sock;
-    RoomState state;
 } GameInfo;
 
 #endif

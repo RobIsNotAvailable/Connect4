@@ -105,15 +105,6 @@ static int fill_buffer(LineReader *reader)
     }
 }
 
-int send_line(int sock, const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int result = vsend_line(sock, fmt, args);
-    va_end(args);
-    return result;
-}
-
 int vsend_line(int sock, const char *fmt, va_list args)
 {
     char line[MAX_LINE];

@@ -232,7 +232,6 @@ int game_registry_list_waiting(int req_sock, GameInfo *out)
             out[n].game_id = registry.games[i].id;
             strncpy(out[n].name, registry.games[i].name, ROOM_NAME_LEN);
             out[n].owner_sock = registry.games[i].owner_sock;
-            out[n].state = registry.games[i].state;
             n++;
         }
     }

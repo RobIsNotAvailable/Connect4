@@ -49,6 +49,7 @@ public class ClickTest extends Rig
         server("GAME_START 3 1 Bob");
         server("GAME_STATE 3 1 " + EMPTY_BOARD);
         onScreenBoard();
+        check("player 1: the names, and which one is us", players().equals("Anna (You) | Bob"), players());
 
         // Every column, at its centre and at both edges.
         for(int c = 0; c < 7; c++)
@@ -81,6 +82,7 @@ public class ClickTest extends Rig
         server("GAME_START 9 2 Carl");
         server("GAME_STATE 9 2 " + EMPTY_BOARD);
         onScreenBoard();
+        check("player 2: the names, and which one is us", players().equals("Carl | Anna (You)"), players());
         check("player 2 in game 9", pressAt(50).equals(List.of("MOVE 9 0")));
 
         for(int c = 0; c < 7; c++)

@@ -1100,11 +1100,6 @@ public class MainController
         }
     }
 
-    public String getUsername()
-    {
-        return username;
-    }
-
     static void setLaF()
     {
         try

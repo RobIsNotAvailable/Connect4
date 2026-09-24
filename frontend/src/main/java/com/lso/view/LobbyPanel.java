@@ -1,13 +1,13 @@
 package com.lso.view;
 
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.JPanel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
 import java.awt.BorderLayout;
 import java.awt.Component;
-import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
@@ -23,7 +23,6 @@ public class LobbyPanel extends JPanel
     private JLabel statusLabel;
     private JButton deleteBtn;
     private JButton resumeBtn;
-    private String username;
     // What the Status column says of a room of ours that has no opponent yet:
     // there is no game to resume, but the room can be deleted.
     public static final String WAITING_STATUS = "Waiting for a player";
@@ -46,14 +45,13 @@ public class LobbyPanel extends JPanel
 
         JPanel header = new JPanel(new GridLayout(1, 3));
         header.setOpaque(false);
-        header.add(new UiUtil.BlankPanel(new Dimension(0, 0)));
+        header.add(Box.createHorizontalGlue());
         header.add(UiUtil.createStyledLabel("Available Games"));
         header.add(usernameLabel);
 
         add(header, BorderLayout.NORTH);
 
         gameTable = new UiUtil.TransparentTable(new Object[0][3], COLUMN_NAMES);
-        gameTable.setEnabled(true);
         gameTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         gameTable.hideColumn(0); // the id: the player picks a room by its name
 
@@ -61,7 +59,6 @@ public class LobbyPanel extends JPanel
         // one table deselects the other, so the buttons below always refer to
         // the one the player is looking at.
         myGamesTable = new UiUtil.TransparentTable(new Object[0][5], OWNED_GAMES_COLUMN_NAMES);
-        myGamesTable.setEnabled(true);
         myGamesTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         myGamesTable.setDefaultRenderer(Object.class, new MyGamesRenderer());
         myGamesTable.hideColumn(0);
@@ -89,7 +86,7 @@ public class LobbyPanel extends JPanel
         buttonPanel.setOpaque(false);
 
         JButton joinBtn = UiUtil.createStyledButton("Join Selected");
-        UiUtil.addListener(joinBtn, e ->
+        joinBtn.addActionListener(e ->
         {
             int row = gameTable.getSelectedRow();
             if(row != -1)
@@ -102,20 +99,19 @@ public class LobbyPanel extends JPanel
         });
 
         JButton createBtn = UiUtil.createStyledButton("Create Game");
-        UiUtil.addListener(createBtn, e -> controller.askRoomName());
+        createBtn.addActionListener(e -> controller.askRoomName());
 
+        // Our rooms are not in Available Games (the server leaves them out), so
+        // the room to delete is the one selected in My Games.
         deleteBtn = UiUtil.createStyledButton("Delete Room");
         deleteBtn.setEnabled(false);
-        UiUtil.addListener(deleteBtn, e ->
+        deleteBtn.addActionListener(e ->
         {
-            // The room is in Available Games and, since it is ours, in My Games
-            // too: the button acts on the table that has a row selected.
-            UiUtil.TransparentTable table = (myGamesTable.getSelectedRow() != -1) ? myGamesTable : gameTable;
-            int row = table.getSelectedRow();
+            int row = myGamesTable.getSelectedRow();
             if(row != -1)
             {
-                String gameId = table.getCellValue(row, 0).toString();
-                String roomName = table.getCellValue(row, 1).toString();
+                String gameId = myGamesTable.getCellValue(row, 0).toString();
+                String roomName = myGamesTable.getCellValue(row, 1).toString();
                 controller.askDeleteRoom(gameId, roomName);
             }
         });
@@ -125,12 +121,11 @@ public class LobbyPanel extends JPanel
             {
                 myGamesTable.clearSelection();
             }
-            updateDeleteButton();
         });
 
         resumeBtn = UiUtil.createStyledButton("Resume");
         resumeBtn.setEnabled(false);
-        UiUtil.addListener(resumeBtn, e -> resumeSelected(controller));
+        resumeBtn.addActionListener(e -> resumeSelected(controller));
         myGamesTable.getSelectionModel().addListSelectionListener(e ->
         {
             if(myGamesTable.getSelectedRow() != -1)
@@ -173,7 +168,6 @@ public class LobbyPanel extends JPanel
 
     public void setUsername(String username)
     {
-        this.username = username;
         usernameLabel.setText(username);
     }
 
@@ -195,7 +189,6 @@ public class LobbyPanel extends JPanel
     public void updateGameList(Object[][] data)
     {
         setDataKeepingSelection(gameTable, data, COLUMN_NAMES);
-        updateDeleteButton();
     }
 
     // The list of the games we are playing is asked again after every move of
@@ -273,16 +266,11 @@ public class LobbyPanel extends JPanel
         resumeBtn.setEnabled(row != -1 && !WAITING_STATUS.equals(myGamesTable.getCellValue(row, 3)));
     }
 
-    // Only the creator can delete a room, so the button is enabled when the
-    // selected row is a room of ours: in Available Games it is one whose owner
-    // is us, in My Games one that is still waiting.
+    // A room can be deleted by its creator while it waits for a player: in My
+    // Games that is a waiting row, since a room that waits has only us in it.
     private void updateDeleteButton()
     {
-        int row = gameTable.getSelectedRow();
-        int myRow = myGamesTable.getSelectedRow();
-        boolean ownRoom = row != -1 && gameTable.getCellValue(row, 2).equals(username);
-        boolean waitingRoom = myRow != -1 && WAITING_STATUS.equals(myGamesTable.getCellValue(myRow, 3));
-
-        deleteBtn.setEnabled(ownRoom || waitingRoom);
+        int row = myGamesTable.getSelectedRow();
+        deleteBtn.setEnabled(row != -1 && WAITING_STATUS.equals(myGamesTable.getCellValue(row, 3)));
     }
 }

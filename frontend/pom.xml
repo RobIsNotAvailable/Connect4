@@ -19,10 +19,5 @@
             <artifactId>flatlaf</artifactId>
             <version>3.5.1</version>
         </dependency>
-        <dependency>
-            <groupId>com.nimbusframework</groupId>
-            <artifactId>nimbus-core</artifactId>
-            <version>0.10</version>
-        </dependency>
     </dependencies>
 </project>

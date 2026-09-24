@@ -303,6 +303,12 @@ public class Rig
         return labelText(gamePanel(), "notificationLabel");
     }
 
+    // The names in the bar over the board on screen: "player 1 | player 2".
+    static String players() throws Exception
+    {
+        return labelText(gamePanel(), "player1Label") + " | " + labelText(gamePanel(), "player2Label");
+    }
+
     // ---- Plumbing
 
     // Runs 'action' on the Swing thread and waits for it; on the Swing thread
