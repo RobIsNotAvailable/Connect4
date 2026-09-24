@@ -40,12 +40,6 @@ public class MainController
     private final Map<Integer, GameSession> sessions = new HashMap<>();
     private GameSession viewed;
 
-    // The rows of My Games come from two lists of the server, which answer one
-    // after the other: the games we play, and the rooms of ours that still wait
-    // for an opponent. Each is kept here and the table is drawn from both.
-    private List<Object[]> matchRows = new ArrayList<>();
-    private List<Object[]> waitingRows = new ArrayList<>();
-
     // Things that interrupt the player (a join request, an error) must not
     // replace what the overlay is already showing: a Game Over box swallowed
     // by a notice would leave the player without Rematch / Leave room. So a
@@ -60,11 +54,6 @@ public class MainController
     // back at once, before the player can ask for another one.
     private final Map<Integer, AskedRoom> askedRooms = new LinkedHashMap<>();
     private int lastAsked;
-
-    // The last join request we answered, for the same reason: an error on
-    // JOIN_RESPONSE does not say which request it was about.
-    private String answeredRoom;
-    private String answeredJoiner;
 
     // What the player last typed as username and as room name, to give it
     // back when the server refuses it.
@@ -158,7 +147,7 @@ public class MainController
     {
         viewed = null;
         cardLayout.show(mainPanel, "Lobby");
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
     }
 
     // Something happened in a game that is not on screen, and the player is on
@@ -183,19 +172,6 @@ public class MainController
             return "you won";
         }
         return result.equals("LOSE") ? "you lost" : "draw";
-    }
-
-    // The list of our games is only on the lobby, so it is only asked for while
-    // the lobby is shown: on the way in, and again whenever something happens
-    // to one of the games (a move, an end, an opponent that leaves or moves) or
-    // to one of our rooms (created, deleted).
-    private void requestMyGames()
-    {
-        if(viewed == null)
-        {
-            sendMessage("LIST_MY_MATCHES");
-            sendMessage("LIST_MY_GAMES");
-        }
     }
 
     private void notice(String joinRoom, Runnable show)
@@ -338,7 +314,6 @@ public class MainController
                 lobbyPanel.setUsername(username);
                 closeOverlay();
                 sendMessage("LIST_GAMES");
-                requestMyGames();
                 break;
 
             case "GAME_LIST":
@@ -355,17 +330,13 @@ public class MainController
                 lobbyPanel.updateGameList(data);
                 break;
 
-            case "MY_MATCH_LIST":
-                onMatchList(parts);
-                break;
-
             case "MY_GAME_LIST":
-                onOwnedList(parts);
+                onMyGameList(parts);
                 break;
 
             case "GAME_CREATED":
                 sendMessage("LIST_GAMES");
-                requestMyGames();
+                sendMessage("LIST_MY_GAMES");
                 break;
 
             case "NEW_GAME":
@@ -554,7 +525,7 @@ public class MainController
         {
             notifyBackground(session, "Your turn against " + session.getOpponent());
         }
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
     }
 
     // What the player does at the end of a game is asked only on the game they
@@ -576,7 +547,7 @@ public class MainController
         {
             notifyBackground(session, "Game against " + session.getOpponent() + " is over: " + resultText(result));
         }
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
     }
 
     // The opponent voted for a rematch first: the same box is drawn again, now
@@ -598,7 +569,7 @@ public class MainController
         {
             notifyBackground(session, session.getOpponent() + " wants a rematch");
         }
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
     }
 
     // The opponent left: the room is open again and we own it, so it is no
@@ -609,7 +580,7 @@ public class MainController
     private void onOpponentLeft(int id)
     {
         GameSession session = sessions.remove(id);
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
         if(session == null)
         {
             return;
@@ -664,7 +635,7 @@ public class MainController
             return;
         }
 
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
         if(session != viewed)
         {
             notifyBackground(session, session.getOpponent() + " left the game and the room was closed");
@@ -700,13 +671,10 @@ public class MainController
         {
             gp.refresh();
         }
-        requestMyGames();
+        sendMessage("LIST_MY_GAMES");
     }
 
-    // The games we are playing: one row each for the lobby. What is written in
-    // the Status column is what a player wants to know at a glance - whose turn
-    // it is, or how a finished game ended.
-    private void onMatchList(String[] parts)
+    private void onMyGameList(String[] parts)
     {
         int count = Integer.parseInt(parts[1]);
         List<Object[]> rows = new ArrayList<>();
@@ -716,66 +684,34 @@ public class MainController
         {
             String id = parts[index++];
             String name = NameCodec.decode(parts[index++]);
-            String opponent = NameCodec.decode(parts[index++]);
+            String opponentRaw = parts[index++];
+            String opponent = opponentRaw.equals("-") ? "" : NameCodec.decode(opponentRaw);
             int myPlayer = Integer.parseInt(parts[index++]);
             String state = parts[index++];
             int turn = Integer.parseInt(parts[index++]);
             boolean away = parts[index++].equals("AWAY");
 
-            // The list says the same as OPPONENT_STATUS: if a message was
-            // missed, this puts the session right.
-            GameSession session = sessions.get(Integer.parseInt(id));
-            if(session != null)
+            if(!state.equals("WAITING"))
             {
-                session.setOpponentAway(away);
-                GamePanel gp = activeGamePanels.get(session.getId());
-                if(gp != null)
+                GameSession session = sessions.get(Integer.parseInt(id));
+                if(session != null)
                 {
-                    gp.refresh();
+                    session.setOpponentAway(away);
+                    GamePanel gp = activeGamePanels.get(session.getId());
+                    if(gp != null)
+                    {
+                        gp.refresh();
+                    }
                 }
+                rows.add(new Object[] {id, name, opponent, matchStatus(Integer.parseInt(id), state, turn, myPlayer), away ? "away" : ""});
             }
-
-            rows.add(new Object[] {id, name, opponent, matchStatus(Integer.parseInt(id), state, turn, myPlayer),
-                                   away ? "away" : ""});
-        }
-
-        matchRows = rows;
-        showMyGames();
-    }
-
-    // The rooms we own, in any state. The ones that already have an opponent
-    // are in the other list, so only the waiting ones are taken: they have no
-    // opponent to show, only a status saying so.
-    private void onOwnedList(String[] parts)
-    {
-        int count = Integer.parseInt(parts[1]);
-        List<Object[]> rows = new ArrayList<>();
-        int index = 2;
-
-        for(int i = 0; i < count; i++)
-        {
-            String id = parts[index++];
-            String name = NameCodec.decode(parts[index++]);
-            String state = parts[index++];
-
-            if(state.equals("WAITING"))
+            else
             {
                 rows.add(new Object[] {id, name, "", LobbyPanel.WAITING_STATUS, ""});
             }
         }
 
-        waitingRows = rows;
-        showMyGames();
-    }
-
-    // One table from the two lists, by game id, so a row does not jump around
-    // when the room it belongs to changes from waiting to played.
-    private void showMyGames()
-    {
-        List<Object[]> rows = new ArrayList<>(matchRows);
-        rows.addAll(waitingRows);
         rows.sort(Comparator.comparingInt(row -> Integer.parseInt(row[0].toString())));
-
         lobbyPanel.updateMyGames(rows.toArray(new Object[0][]));
     }
 
@@ -887,7 +823,7 @@ public class MainController
                 {
                     sendMessage("LEAVE_GAME " + gameId);
                     sendMessage("LIST_GAMES");
-                    requestMyGames();
+                    sendMessage("LIST_MY_GAMES");
                 }
             }
         );
@@ -912,7 +848,7 @@ public class MainController
         GameSession session = sessions.get(id);
         if(session == null)
         {
-            requestMyGames(); // the list was out of date
+            sendMessage("LIST_MY_GAMES");
             return;
         }
 
@@ -956,8 +892,6 @@ public class MainController
             new String[] {"Accept", "Decline"},
             choice ->
             {
-                answeredRoom = gameId;
-                answeredJoiner = joiner;
                 sendMessage("JOIN_RESPONSE " + gameId + " " + (choice == 0 ? 1 : 0));
                 closeOverlay();
             }
@@ -1032,17 +966,6 @@ public class MainController
             return;
         }
 
-        // Accepted while we already play MAX_MATCHES games: the server keeps
-        // the request waiting, but its box is gone and nobody could answer it,
-        // and the room takes one request at a time. So it is declined.
-        if(command.equals("JOIN_RESPONSE") && code.equals("TOO_MANY_MATCHES"))
-        {
-            sendMessage("JOIN_RESPONSE " + answeredRoom + " 0");
-            showNotice("Error", "You are already playing the maximum number of games (" + MAX_MATCHES + "), so "
-                       + answeredJoiner + "'s request was declined. Leave a game to accept new players.");
-            return;
-        }
-
         // Refused at once, so it is the request just sent. ALREADY_PENDING
         // is someone else's request: ours are never sent twice (joinGame).
         if(command.equals("JOIN_GAME"))
@@ -1065,11 +988,10 @@ public class MainController
             case "SELF_JOIN":       return "You can't join your own room.";
             // A room takes one request at a time: this one may be someone else's.
             case "ALREADY_PENDING": return "Someone is already waiting to join this room. Try again in a moment.";
-            case "TOO_MANY_GAMES":  return "You already have 3 rooms, games in progress included. Delete or leave one to create another.";
+            case "TOO_MANY_GAMES":  return "You are already playing the maximum number of games (5). Leave one first.";
             case "SERVER_FULL":     return "The server can't host more games right now.";
             case "INVALID_NAME":    return "That name is not valid: use up to 20 letters without accents, digits or symbols.";
             case "USERNAME_TAKEN":  return "That username is already taken.";
-            case "TOO_MANY_MATCHES": return "You are already playing the maximum number of games (5). Leave one first.";
             case "JOINER_FULL":     return "That player is already playing the maximum number of games (5), so their request was cancelled.";
             case "NO_PENDING":      return "That player is no longer waiting to join.";
             default:                return "Something went wrong: the server refused the request.";

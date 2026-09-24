@@ -10,10 +10,6 @@
 // one game per occupied slot.
 #define MAX_GAMES 256
 
-// How many games a single client can own at once, whatever state they are
-// in (WAITING, PLAYING or FINISHED all count until the game is removed).
-#define MAX_GAMES_PER_OWNER 3
-
 // How many games a single client can play at once (docs/protocol.md §5.1): the
 // ones it is a player of that have an opponent, PLAYING or FINISHED - a
 // finished game keeps its place until the player leaves it. It also bounds
@@ -61,7 +57,7 @@ typedef enum
     JOIN_ERR_NOT_WAITING,
     JOIN_ERR_SELF_JOIN,
     JOIN_ERR_ALREADY_PENDING,
-    JOIN_ERR_TOO_MANY_MATCHES // the joiner already plays MAX_GAMES_PER_PLAYER games
+    JOIN_ERR_TOO_MANY_GAMES // the joiner already plays MAX_GAMES_PER_PLAYER games
 } JoinSetResult;
 
 // Outcomes of game_registry_resolve_join().
@@ -71,7 +67,6 @@ typedef enum
     RESOLVE_ERR_NOT_FOUND,
     RESOLVE_ERR_NOT_OWNER,
     RESOLVE_ERR_NO_PENDING,
-    RESOLVE_ERR_TOO_MANY_MATCHES, // the owner already plays MAX_GAMES_PER_PLAYER games: the request stays pending
     RESOLVE_ERR_JOINER_FULL       // the joiner reached that number since asking: the request is cancelled
 } ResolveResult;
 
@@ -84,7 +79,7 @@ typedef struct
     int my_player;   // 1 if the client is the owner, 2 otherwise
     RoomState state; // GAME_PLAYING or GAME_FINISHED
     int turn;        // 1 or 2 while PLAYING, 0 once FINISHED
-} MatchInfo;
+} MyGameInfo;
 
 // Outcomes of game_registry_apply_move().
 typedef enum
@@ -156,8 +151,8 @@ typedef enum
 } LeaveResult;
 
 // Creates a new game called 'name', owned by 'owner_sock', state WAITING,
-// unless the registry is full or the owner already owns
-// MAX_GAMES_PER_OWNER games. 'name' must already have passed
+// unless the registry is full or the owner already is in
+// MAX_GAMES_PER_PLAYER games. 'name' must already have passed
 // is_valid_name (at most ROOM_NAME_LEN - 1 characters): it is not checked
 // again here. Names are not unique - two games can share one. On
 // CREATE_OK, 'out_game' is filled with the new game (needed by the caller
@@ -183,15 +178,10 @@ LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event);
 // Returns how many were copied.
 int game_registry_list_waiting(int req_sock, GameInfo *out);
 
-// Fills 'out' (caller-allocated, at least MAX_GAMES_PER_OWNER entries) with
-// every game owned by 'owner_sock', whatever its state. Returns how many
-// were copied.
-int game_registry_list_owned(int owner_sock, GameInfo *out);
-
 // Fills 'out' with up to 'max' games that 'sock' is a player of and that have
 // an opponent (PLAYING or FINISHED), by increasing id. Returns how many were
 // copied. A client never has more than MAX_GAMES_PER_PLAYER of them.
-int game_registry_list_matches(int sock, MatchInfo *out, int max);
+int game_registry_list_my_games(int sock, MyGameInfo *out, int max);
 
 // Atomically validates a join request and, if valid, marks the game as
 // having a pending joiner. 'out_game' is filled with the game's state
@@ -203,11 +193,7 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
 // reject: state stays WAITING, pending cleared. 'out_game' is filled with
 // the game's state after the call, with pending_joiner_sock always equal
 // to the joiner that was just resolved (accepted or not), so the caller
-// knows who to notify with JOIN_RESULT. The same holds for
-// RESOLVE_ERR_JOINER_FULL, where the request is cancelled too: unlike
-// TOO_MANY_MATCHES (the owner can free a place and answer again), a request
-// from someone who is full would otherwise sit there and block the game for
-// everybody else.
+// knows who to notify with JOIN_RESULT.
 ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game);
 
 // Validates and applies one MOVE (docs/protocol.md §5): checks the game

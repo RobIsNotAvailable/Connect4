@@ -6,11 +6,10 @@
 // These are the private helpers defined in this file, forward-declared
 // here so each can be defined after its first caller: leave_game_slot and
 // free_slot after game_registry_handle_disconnect, game_id_is_valid after
-// game_registry_set_pending, count_owned_games after game_create.
+// game_registry_set_pending.
 static void leave_game_slot(int index, int sock, LeaveEvent *event);
 static void free_slot(int index);
 static int game_id_is_valid(int game_id);
-static int count_owned_games(int sock);
 static int count_matches(int sock);
 
 // Thread-safe registry of games, mirroring ClientList (see
@@ -53,7 +52,7 @@ CreateResult game_create(int owner_sock, const char *name, Game *out_game)
 
     pthread_mutex_lock(&registry.mutex);
 
-    if (count_owned_games(owner_sock) >= MAX_GAMES_PER_OWNER)
+    if (count_matches(owner_sock) >= MAX_GAMES_PER_PLAYER)
     {
         result = CREATE_ERR_TOO_MANY_GAMES;
     }
@@ -79,27 +78,8 @@ CreateResult game_create(int owner_sock, const char *name, Game *out_game)
     return result;
 }
 
-// Returns how many occupied slots have 'sock' as owner, whatever their
-// state. Caller must hold registry.mutex. A full scan bounded by the highest
-// id ever handed out, like the other ones in this file; only runs on
-// CREATE_GAME, which is rare.
-static int count_owned_games(int sock)
-{
-    int n = 0;
-
-    for (int i = 0; i < registry.next_id - 1; i++)
-    {
-        if (registry.games[i].state != GAME_EMPTY && registry.games[i].owner_sock == sock)
-        {
-            n++;
-        }
-    }
-    return n;
-}
-
 // Returns how many games 'sock' is a player of (owner or player2) that have an
-// opponent, i.e. PLAYING or FINISHED. Caller must hold registry.mutex. Same
-// bounded full scan as count_owned_games.
+// opponent, i.e. PLAYING or FINISHED. Caller must hold registry.mutex.
 static int count_matches(int sock)
 {
     int n = 0;
@@ -107,7 +87,7 @@ static int count_matches(int sock)
     for (int i = 0; i < registry.next_id - 1; i++)
     {
         const Game *g = &registry.games[i];
-        if ((g->owner_sock == sock || g->player2_sock == sock))
+        if (g->state != GAME_EMPTY && (g->owner_sock == sock || g->player2_sock == sock))
         {
             n++;
         }
@@ -116,10 +96,8 @@ static int count_matches(int sock)
 }
 
 // A single client can be involved (as owner, pending joiner, or player2)
-// in several games at once - it can own up to MAX_GAMES_PER_OWNER of them,
-// and nothing stops holding more than one pending join request
-// either - so this has to check every occupied slot; unlike a single-game
-// lookup by id it isn't a single-slot operation. Bounded by the highest
+// in several games at once and have more pending join requests
+// so this has to check every occupied slot. Bounded by the highest
 // id ever handed out rather than MAX_GAMES, and only runs once per
 // disconnect (not per request), so the scan is cheap in practice.
 int game_registry_handle_disconnect(int sock, LeaveEvent *events)
@@ -137,8 +115,6 @@ int game_registry_handle_disconnect(int sock, LeaveEvent *events)
 
         if (registry.games[i].pending_joiner_sock == sock)
         {
-            // Docs/protocol.md §8: the request is cancelled, the game
-            // itself stays WAITING and can receive new requests.
             events[n].type = LEAVE_JOIN_CANCELLED;
             events[n].game_id = registry.games[i].id;
             events[n].notify_sock = registry.games[i].owner_sock;
@@ -191,9 +167,7 @@ LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event)
 //
 // Whoever is left in the game keeps it. If that is the owner, the game goes
 // back to WAITING with a fresh board. If the owner is the one who left, the
-// other player takes over as owner - unless they already own
-// MAX_GAMES_PER_OWNER other games, in which case the game is removed rather
-// than break that limit. With nobody left, the game is removed too.
+// other player takes over as owner. With nobody left, the game is removed.
 static void leave_game_slot(int index, int sock, LeaveEvent *event)
 {
     Game *g = &registry.games[index];
@@ -205,7 +179,7 @@ static void leave_game_slot(int index, int sock, LeaveEvent *event)
     event->notify_sock = -1;
     event->other_sock = remaining_sock;
 
-    if (remaining_sock == -1 || (owner_left && count_owned_games(remaining_sock) >= MAX_GAMES_PER_OWNER))
+    if (remaining_sock == -1 || (owner_left && count_matches(remaining_sock) >= MAX_GAMES_PER_PLAYER))
     {
         event->type = LEAVE_ROOM_CLOSED;
         free_slot(index);
@@ -266,34 +240,6 @@ int game_registry_list_waiting(int req_sock, GameInfo *out)
     return n;
 }
 
-// Same bounded scan as game_registry_list_waiting, filtered by owner
-// instead of state. An owner has at most MAX_GAMES_PER_OWNER games (game_create
-// refuses more, and an ownership transfer closes the room rather than
-// exceed it), so 'out' can never overflow; the loop condition enforces it
-// anyway.
-int game_registry_list_owned(int owner_sock, GameInfo *out)
-{
-    int n = 0;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    for (int i = 0; i < registry.next_id - 1 && n < MAX_GAMES_PER_OWNER; i++)
-    {
-        if (registry.games[i].state != GAME_EMPTY && registry.games[i].owner_sock == owner_sock)
-        {
-            out[n].game_id = registry.games[i].id;
-            strncpy(out[n].name, registry.games[i].name, ROOM_NAME_LEN);
-            out[n].owner_sock = registry.games[i].owner_sock;
-            out[n].state = registry.games[i].state;
-            n++;
-        }
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return n;
-}
-
 JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_game)
 {
     JoinSetResult result = JOIN_ERR_NOT_FOUND;
@@ -318,7 +264,7 @@ JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_
         }
         else if (count_matches(joiner_sock) >= MAX_GAMES_PER_PLAYER)
         {
-            result = JOIN_ERR_TOO_MANY_MATCHES;
+            result = JOIN_ERR_TOO_MANY_GAMES;
         }
         else
         {
@@ -363,10 +309,6 @@ ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accept
         else if (joiner_sock == -1)
         {
             result = RESOLVE_ERR_NO_PENDING;
-        }
-        else if (accepted && count_matches(owner_sock) >= MAX_GAMES_PER_PLAYER)
-        {
-            result = RESOLVE_ERR_TOO_MANY_MATCHES;
         }
         else if (accepted && count_matches(joiner_sock) >= MAX_GAMES_PER_PLAYER)
         {
@@ -533,8 +475,7 @@ RematchResult game_registry_rematch(int game_id, int sock, Game *out_game)
 
     return result;
 }
-
-int game_registry_list_matches(int sock, MatchInfo *out, int max)
+int game_registry_list_my_games(int sock, MyGameInfo *out, int max)
 {
     int n = 0;
 
@@ -543,8 +484,8 @@ int game_registry_list_matches(int sock, MatchInfo *out, int max)
     for (int i = 0; i < registry.next_id - 1 && n < max; i++)
     {
         const Game *g = &registry.games[i];
-        if ((g->state == GAME_PLAYING || g->state == GAME_FINISHED) &&
-            (g->owner_sock == sock || g->player2_sock == sock))
+        
+        if (g->state != GAME_EMPTY && (g->owner_sock == sock || g->player2_sock == sock))
         {
             int is_owner = (g->owner_sock == sock);
 

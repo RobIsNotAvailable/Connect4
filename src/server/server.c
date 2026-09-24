@@ -13,29 +13,10 @@
 #include "net.h"
 #include "protocol.h"
 
-// How long a send() to a client may stay blocked (its buffers full because
-// it does not read) before the server gives up on it. See client_handler.
-// A client that reads its socket never gets near the limit: its buffers hold
-// far more than the few bytes of a line.
+// How long a send() to a client may stay blocked before the server gives up on it
 #define SEND_TIMEOUT_SEC 2
 
-// Held while a command is handled and while a disconnect is applied, from the
-// change to the registries to the last notification about it. Problem: each
-// registry has its own lock, but the notifications are sent after it is
-// released. Two threads changing the same game could then apply their changes
-// in one order and send the notifications in the other (both players of a
-// game hang up together: the room is deleted, GAME_CLOSED goes out, and then
-// the NEW_GAME of the first hang-up arrives: the lobby shows a room that no
-// longer exists). With this lock the notifications follow the order of the
-// changes. Lock order: command_mutex, then a client's send mutex, then the
-// registries' own; nothing takes command_mutex while holding those.
-static pthread_mutex_t command_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-// Forward declarations of every function defined below, in the order
-// main() reaches them: main -> client_handler -> dispatch_command ->
-// one handle_* per command (which may call an *_error_code translator).
-// Keeping only signatures here lets the definitions further down read
-// top-down, starting from main().
 static void handle_stop_signal(int sig);
 static void *client_handler(void *sock_id);
 static void dispatch_command(int client_sock, Client *me, char *line);
@@ -50,7 +31,6 @@ static void handle_rematch(int client_sock, const Client *me, int argc, char *ar
 static const char *rematch_error_code(RematchResult r);
 static void handle_list_games(int client_sock);
 static void handle_list_my_games(int client_sock);
-static void handle_list_my_matches(int client_sock);
 static const char *room_state_name(RoomState s);
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[]);
 static const char *join_set_error_code(JoinSetResult r);
@@ -83,16 +63,11 @@ int main()
         return -1;
     }
 
-    // Problem: when the server stops while clients are still connected, it is
-    // the side that closes those connections first, so the kernel keeps each
-    // of them in TIME_WAIT for about a minute (to make sure the last ACK
-    // arrived and that stray packets of the old connection are not taken for
-    // data of a new one). Those leftovers still hold the server's port, so
-    // without the option below a restart right away (a crash, `docker compose
-    // restart`) fails in bind() with "Address already in use" until they expire.
-    // SO_REUSEADDR lets bind() succeed despite connections in TIME_WAIT. It
-    // does not allow two servers on the same port: while another one is in
-    // LISTEN state, bind() still fails. It must be set before bind().
+    // When the server stops while clients are still connected
+    // the kernel keeps each of them in TIME_WAIT for about a minute.
+    // Those leftovers still hold the server's port, so without the option below
+    // a restart right away fails in bind() with "Address already in use" until they expire.
+    // SO_REUSEADDR lets bind() succeed despite connections in TIME_WAIT.
     int reuse = 1;
     if (setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0)
     {
@@ -119,6 +94,7 @@ int main()
         return -1;
     }
 
+    //controllare
     // Problem: the default action of SIGTERM (what `docker stop` sends) and
     // SIGINT (Ctrl-C) is to kill the process, but the first process of a
     // container (PID 1) is special: the kernel ignores the signals it has no
@@ -168,6 +144,7 @@ int main()
     return 0;
 }
 
+//controllare
 // SIGTERM / SIGINT: the server stops at once. Why not set a flag and let the
 // accept() loop in main() notice it? The process has many threads and the
 // signal may be delivered to any of them, so main()'s accept() is not sure to
@@ -203,17 +180,15 @@ static void *client_handler(void *sock_id)
 
     printf("[SERVER] New client connected on socket %d, assigned id=%d\n", client_sock, me.id);
 
-    // Problem: a client that stops reading (hung, or a debugger on it) fills
-    // its socket buffers, and from then on every send() to it blocks - with
-    // that client's send mutex held. Any thread that has to notify it (a
-    // broadcast, from any other client's handler) then waits behind it for
-    // good, so one stuck client freezes everyone who creates, joins or plays.
+    // A client that stops reading fills its socket buffers, and from then
+    // on every send() to it blocks with that client's send mutex held.
+    // Then a broadcast would freeze the whole server.
     // With a send timeout the blocked send() fails after SEND_TIMEOUT_SEC,
-    // and client_send_line drops the client (see there).
+    // and client_send_line drops the client.
     struct timeval send_timeout = { .tv_sec = SEND_TIMEOUT_SEC, .tv_usec = 0 };
     if (setsockopt(client_sock, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout)) < 0)
     {
-        perror("[SERVER] Setsockopt SO_SNDTIMEO error"); // not fatal: this client just keeps blocking sends
+        perror("[SERVER] Setsockopt SO_SNDTIMEO error");
     }
 
     client_send_line(client_sock, "WELCOME %d", me.id);
@@ -225,9 +200,7 @@ static void *client_handler(void *sock_id)
 
     while ((comm_status = recv_line(&reader, line)) == LINE_OK)
     {
-        pthread_mutex_lock(&command_mutex);
         dispatch_command(client_sock, &me, line);
-        pthread_mutex_unlock(&command_mutex);
     }
 
     if (comm_status == LINE_CLOSED)
@@ -236,8 +209,6 @@ static void *client_handler(void *sock_id)
     }
     else if (comm_status == LINE_TOO_LONG)
     {
-        // docs/protocol.md §1.2: a client that sends a line longer than
-        // MAX_LINE gets disconnected, with no error message.
         printf("[SERVER] Client %s (socket %d) sent a line longer than %d bytes, closing\n",
                log_name(&me), client_sock, MAX_LINE);
     }
@@ -246,16 +217,13 @@ static void *client_handler(void *sock_id)
         perror("[SERVER] Error in receiving data from client");
     }
 
-    client_list_remove(me.id);
-    pthread_mutex_lock(&command_mutex);
     handle_disconnect(client_sock);
-    pthread_mutex_unlock(&command_mutex);
+    client_list_remove(me.id);
+
     close(client_sock);
     pthread_exit(NULL);
 }
 
-// Applies docs/protocol.md §8 for 'client_sock', which just disconnected,
-// to every game it was involved in (as owner, pending joiner, or player2).
 static void handle_disconnect(int client_sock)
 {
     LeaveEvent events[MAX_GAMES];
@@ -264,9 +232,7 @@ static void handle_disconnect(int client_sock)
     notify_leave_events(client_sock, events, n);
 }
 
-// Sends the notifications for what the registry did because 'leaver_sock'
-// left some games (docs/protocol.md §6 and §8). Kept apart from
-// handle_disconnect so an explicit leave can send exactly the same messages.
+// Sends the notifications for what the registry did because 'leaver_sock' left some games
 static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n)
 {
     for (int i = 0; i < n; i++)
@@ -276,8 +242,7 @@ static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n
 
         // The game is over for whoever left, and no longer being played for
         // the one who stays (it is WAITING again, or gone): neither has it as
-        // active game any more. A leaver that disconnected is not there to
-        // clear, which is fine.
+        // active game any more.
         if (events[i].type != LEAVE_JOIN_CANCELLED)
         {
             clear_active_game(leaver_sock, game_id);
@@ -290,14 +255,10 @@ static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n
                 client_send_line(notify_sock, "JOIN_CANCELLED %d", game_id);
                 break;
             case LEAVE_ROOM_CLOSED:
-                // Nobody in the game is left to tell, apart from a pending
-                // joiner, who is covered by the broadcast like everyone else.
                 client_broadcast_except(leaver_sock, -1, "GAME_CLOSED %d", game_id);
                 break;
             case LEAVE_ROOM_REOPENED:
             {
-                // notify_sock is the remaining player and, from now on, the
-                // owner: everyone else is told the game is joinable again.
                 client_send_line(notify_sock, "OPPONENT_LEFT %d", game_id);
 
                 char owner_username[USERNAME_LEN];
@@ -314,7 +275,7 @@ static void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n
 
 // Splits one received line into command + arguments and calls the
 // matching handler. An unrecognized command, or one that fails its own
-// validation, gets "ERROR <comando> <codice>" per docs/protocol.md §1.5.
+// validation, gets "ERROR <command> <code>".
 static void dispatch_command(int client_sock, Client *me, char *line)
 {
     char *argv[MAX_ARGS];
@@ -322,7 +283,7 @@ static void dispatch_command(int client_sock, Client *me, char *line)
 
     if (argc == 0)
     {
-        return; // blank line: the protocol doesn't forbid it, just ignore it
+        return;
     }
 
     const char *cmd = argv[0];
@@ -334,10 +295,6 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     }
     else if (me->username[0] == '\0')
     {
-        // docs/protocol.md §2: until a username is chosen, SET_USERNAME is
-        // the only accepted command. Every name a game or a notification
-        // shows is therefore already final. The command is echoed as sent,
-        // cut to a length that always fits in a line.
         client_send_line(client_sock, "ERROR %.31s NO_USERNAME", cmd);
     }
     else if (strcmp(cmd, "CREATE_GAME") == 0)
@@ -351,10 +308,6 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     else if (strcmp(cmd, "LIST_MY_GAMES") == 0)
     {
         handle_list_my_games(client_sock);
-    }
-    else if (strcmp(cmd, "LIST_MY_MATCHES") == 0)
-    {
-        handle_list_my_matches(client_sock);
     }
     else if (strcmp(cmd, "JOIN_GAME") == 0)
     {
@@ -387,8 +340,8 @@ static void dispatch_command(int client_sock, Client *me, char *line)
     }
 }
 
-// The username is chosen once, right after connecting (docs/protocol.md
-// §2). 'me' is this handler's own copy of the client: the registry's copy
+// The username is chosen once, right after connecting.
+// 'me' is this handler's own copy of the client: the registry's copy
 // is the one that changes, so on success 'me' is refreshed to match.
 static void handle_set_username(int client_sock, Client *me, int argc, char *argv[])
 {
@@ -419,15 +372,14 @@ static void handle_set_username(int client_sock, Client *me, int argc, char *arg
     client_send_line(client_sock, "ERROR SET_USERNAME %s", code);
 }
 
-// Translates SetUsernameResult (internal to client_registry.c) into the
-// ERROR codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+// Translates SetUsernameResult (internal to client_registry.c) into the ERROR codes
 static const char *set_username_error_code(SetUsernameResult r)
 {
     switch (r)
     {
         case SET_USERNAME_ERR_ALREADY_NAMED: return "ALREADY_NAMED";
         case SET_USERNAME_ERR_TAKEN:         return "USERNAME_TAKEN";
-        default:                             return "ALREADY_NAMED"; // SET_USERNAME_OK never reaches here
+        default:                             return "ALREADY_NAMED";
     }
 }
 
@@ -440,8 +392,6 @@ static const char *log_name(const Client *me)
 
 static void handle_create_game(int client_sock, const Client *me, int argc, char *argv[])
 {
-    // A name with a space in it arrives as extra tokens, so it fails the
-    // argc check here rather than reaching is_valid_name.
     if (argc != 2)
     {
         client_send_line(client_sock, "ERROR CREATE_GAME BAD_ARGS");
@@ -470,15 +420,14 @@ static void handle_create_game(int client_sock, const Client *me, int argc, char
     client_send_line(client_sock, "ERROR CREATE_GAME %s", code);
 }
 
-// Translates CreateResult (internal to game_registry.c) into the ERROR
-// codes of docs/protocol.md §1.5, same reasoning as join_set_error_code.
+// Translates CreateResult (internal to game_registry.c) into ERROR codes
 static const char *create_error_code(CreateResult r)
 {
     switch (r)
     {
         case CREATE_ERR_SERVER_FULL:    return "SERVER_FULL";
         case CREATE_ERR_TOO_MANY_GAMES: return "TOO_MANY_GAMES";
-        default:                        return "SERVER_FULL"; // CREATE_OK never reaches here
+        default:                        return "SERVER_FULL";
     }
 }
 
@@ -487,14 +436,6 @@ static void handle_list_games(int client_sock)
     GameInfo games[MAX_GAMES_IN_LIST];
     int count = game_registry_list_waiting(client_sock, games);
 
-    // The entries are built first and the count written afterwards, so
-    // <count> always matches the entries actually in the line: with long
-    // names and usernames 32 entries can exceed MAX_LINE, and a line cut
-    // in the middle of an entry, or a count larger than what follows,
-    // would break the client's parser. An entry that doesn't fit is left
-    // out (along with every one after it). The buffer leaves room for the
-    // "GAME_LIST <count>" prefix (count has at most 2 digits, see
-    // MAX_GAMES_IN_LIST) and the '\n'.
     char entries[MAX_LINE - sizeof("GAME_LIST 00")];
     size_t len = 0;
     int listed = 0;
@@ -521,50 +462,10 @@ static void handle_list_games(int client_sock)
     client_send_line(client_sock, "GAME_LIST %d%s", listed, entries);
 }
 
-// LIST_MY_GAMES: the games the sender owns, in any state (docs/protocol.md
-// §3). Unlike handle_list_games there is no truncation to handle: a client
-// owns at most MAX_GAMES_PER_OWNER games, and an entry is at most a few
-// dozen characters, so the reply always fits in MAX_LINE.
 static void handle_list_my_games(int client_sock)
 {
-    GameInfo games[MAX_GAMES_PER_OWNER];
-    int count = game_registry_list_owned(client_sock, games);
-
-    char entries[MAX_GAMES_PER_OWNER * 48];
-    size_t len = 0;
-    entries[0] = '\0';
-
-    for (int i = 0; i < count; i++)
-    {
-        len += snprintf(entries + len, sizeof(entries) - len, " %d %s %s",
-                        games[i].game_id, games[i].name, room_state_name(games[i].state));
-    }
-
-    client_send_line(client_sock, "MY_GAME_LIST %d%s", count, entries);
-}
-
-// The state's name as it appears on the wire (docs/protocol.md §3).
-static const char *room_state_name(RoomState s)
-{
-    switch (s)
-    {
-        case GAME_WAITING:  return "WAITING";
-        case GAME_PLAYING:  return "PLAYING";
-        case GAME_FINISHED: return "FINISHED";
-        default:            return "WAITING"; // GAME_EMPTY is never listed
-    }
-}
-
-// LIST_MY_MATCHES: the games the sender plays, with their opponent
-// (docs/protocol.md §5.3). No truncation to handle here either: a client has
-// at most MAX_GAMES_PER_PLAYER of them. The entries are written first and
-// counted as they go, because an opponent that disconnected since the registry
-// was read has no username left and its game is about to be closed: it is left
-// out, and 'count' stays right.
-static void handle_list_my_matches(int client_sock)
-{
-    MatchInfo matches[MAX_GAMES_PER_PLAYER];
-    int n = game_registry_list_matches(client_sock, matches, MAX_GAMES_PER_PLAYER);
+    MyGameInfo games[MAX_GAMES_PER_PLAYER];
+    int n = game_registry_list_my_games(client_sock, games, MAX_GAMES_PER_PLAYER);
 
     char entries[MAX_GAMES_PER_PLAYER * 96];
     size_t len = 0;
@@ -574,20 +475,37 @@ static void handle_list_my_matches(int client_sock)
     for (int i = 0; i < n; i++)
     {
         char opponent[USERNAME_LEN];
-        if (!client_list_find_username(matches[i].opponent_sock, opponent))
+        
+        if (games[i].opponent_sock == -1)
         {
-            continue;
+            strcpy(opponent, "-");
+        }
+        else if (!client_list_find_username(games[i].opponent_sock, opponent))
+        {
+            continue; 
         }
 
         len += snprintf(entries + len, sizeof(entries) - len, " %d %s %s %d %s %d %s",
-                        matches[i].game_id, matches[i].name, opponent, matches[i].my_player,
-                        room_state_name(matches[i].state), matches[i].turn,
-                        is_away(matches[i].opponent_sock, matches[i].game_id) ? "AWAY" : "HERE");
+                        games[i].game_id, games[i].name, opponent, games[i].my_player,
+                        room_state_name(games[i].state), games[i].turn,
+                        (games[i].opponent_sock != -1 && is_away(games[i].opponent_sock, games[i].game_id)) ? "AWAY" : "HERE");
         count++;
     }
 
-    client_send_line(client_sock, "MY_MATCH_LIST %d%s", count, entries);
+    client_send_line(client_sock, "MY_GAME_LIST %d%s", count, entries);
 }
+
+static const char *room_state_name(RoomState s)
+{
+    switch (s)
+    {
+        case GAME_WAITING:  return "WAITING";
+        case GAME_PLAYING:  return "PLAYING";
+        case GAME_FINISHED: return "FINISHED";
+        default:            return "WAITING";
+    }
+}
+
 
 static void handle_join_game(int client_sock, const Client *me, int argc, char *argv[])
 {
@@ -628,7 +546,7 @@ static const char *join_set_error_code(JoinSetResult r)
         case JOIN_ERR_NOT_WAITING:     return "NOT_WAITING";
         case JOIN_ERR_SELF_JOIN:       return "SELF_JOIN";
         case JOIN_ERR_ALREADY_PENDING: return "ALREADY_PENDING";
-        case JOIN_ERR_TOO_MANY_MATCHES: return "TOO_MANY_MATCHES";
+        case JOIN_ERR_TOO_MANY_GAMES:  return "TOO_MANY_GAMES";
         default:                       return "NOT_FOUND"; // JOIN_OK never reaches here
     }
 }
@@ -655,10 +573,7 @@ static void handle_join_response(int client_sock, const Client *me, int argc, ch
         client_send_line(g.pending_joiner_sock, "JOIN_RESULT %d %d", game_id, accepted);
         if (accepted)
         {
-            // g.player2_sock is the joiner: resolve_join sets it before
-            // returning, on the accept path. Both players already know
-            // via JOIN_RESULT/JOIN_NOTIFY, so they're excluded here.
-            client_broadcast_except(g.owner_sock, g.player2_sock, "GAME_IN_PROGRESS %d", game_id);
+            client_broadcast_except(-1, -1, "GAME_IN_PROGRESS %d", game_id);
             send_game_start(&g);
         }
         return;
@@ -682,12 +597,11 @@ static const char *resolve_error_code(ResolveResult r)
 {
     switch (r)
     {
-        case RESOLVE_ERR_NOT_FOUND:  return "NOT_FOUND";
-        case RESOLVE_ERR_NOT_OWNER:  return "NOT_OWNER";
-        case RESOLVE_ERR_NO_PENDING: return "NO_PENDING";
-        case RESOLVE_ERR_TOO_MANY_MATCHES: return "TOO_MANY_MATCHES";
+        case RESOLVE_ERR_NOT_FOUND:   return "NOT_FOUND";
+        case RESOLVE_ERR_NOT_OWNER:   return "NOT_OWNER";
+        case RESOLVE_ERR_NO_PENDING:  return "NO_PENDING";
         case RESOLVE_ERR_JOINER_FULL: return "JOINER_FULL";
-        default:                     return "NOT_FOUND"; // RESOLVE_OK never reaches here
+        default:                      return "NOT_FOUND"; // RESOLVE_OK never reaches here
     }
 }
 
@@ -981,8 +895,8 @@ static int is_away(int sock, int game_id)
 // send_game_start.
 static void announce_presence(int sock, int old_active, int new_active, int skip_game)
 {
-    MatchInfo matches[MAX_GAMES_PER_PLAYER];
-    int n = game_registry_list_matches(sock, matches, MAX_GAMES_PER_PLAYER);
+    MyGameInfo matches[MAX_GAMES_PER_PLAYER];
+    int n = game_registry_list_my_games(sock, matches, MAX_GAMES_PER_PLAYER);
 
     for (int i = 0; i < n; i++)
     {

@@ -11,7 +11,6 @@
 // dal server per costruire la risposta a LIST_GAMES.
 
 #define PORT 8080
-#define BUFFER_SIZE 256
 
 // Buffer size for a username: 20 characters + '\0', the same limit
 // docs/protocol.md §1.2 states for every name chosen by a client.

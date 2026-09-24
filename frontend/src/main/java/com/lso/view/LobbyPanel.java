@@ -29,7 +29,7 @@ public class LobbyPanel extends JPanel
     public static final String WAITING_STATUS = "Waiting for a player";
 
     private final String[] COLUMN_NAMES = {"Game ID", "Name", "Owner"};
-    private final String[] MY_GAMES_COLUMN_NAMES = {"Game ID", "Name", "Opponent", "Status", "Opponent is"};
+    private final String[] OWNED_GAMES_COLUMN_NAMES = {"Game ID", "Name", "Opponent", "Status", "Opponent is"};
 
     public LobbyPanel(MainController controller)
     {
@@ -60,7 +60,7 @@ public class LobbyPanel extends JPanel
         // The games we are playing, under the rooms to join. Selecting a row in
         // one table deselects the other, so the buttons below always refer to
         // the one the player is looking at.
-        myGamesTable = new UiUtil.TransparentTable(new Object[0][5], MY_GAMES_COLUMN_NAMES);
+        myGamesTable = new UiUtil.TransparentTable(new Object[0][5], OWNED_GAMES_COLUMN_NAMES);
         myGamesTable.setEnabled(true);
         myGamesTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         myGamesTable.setDefaultRenderer(Object.class, new MyGamesRenderer());
@@ -202,7 +202,7 @@ public class LobbyPanel extends JPanel
     // the opponents, so the selected game stays selected across the update.
     public void updateMyGames(Object[][] rows)
     {
-        setDataKeepingSelection(myGamesTable, rows, MY_GAMES_COLUMN_NAMES);
+        setDataKeepingSelection(myGamesTable, rows, OWNED_GAMES_COLUMN_NAMES);
     }
 
     // New data means a new model, which clears the selection: the row with

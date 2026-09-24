@@ -202,7 +202,7 @@ public class GamePanel extends JPanel
         if(session == null)
             return;
         
-        if(session.getPlayerName(1) == controller.getUsername())
+        if(session.getPlayerName(1).equals(controller.getUsername()))
         {
             player1Label.setText(session.getPlayerName(1) + " (You)");
             player2Label.setText(session.getPlayerName(2));
