@@ -21,7 +21,6 @@ public class GamePanel extends JPanel
     public static final int NOTIFICATION_MILLIS = 6000;
 
     private final GameController games;
-    private final GameEndController ends;
     private final JButton bellButton;
     private JLabel player1Label;
     private JLabel player2Label;
@@ -36,7 +35,6 @@ public class GamePanel extends JPanel
     public GamePanel(GameController games, GameEndController ends, GameSession session)
     {
         this.games = games;
-        this.ends = ends;
         setLayout(new BorderLayout(0, 20));
         setOpaque(false);
 
