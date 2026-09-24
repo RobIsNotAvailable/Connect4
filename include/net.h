@@ -66,4 +66,7 @@ int parse_int(const char *s, int *out);
 // before copying it into a fixed-size buffer.
 int is_valid_name(const char *s, size_t max_len);
 
+// The word of an error code, as it goes in "ERROR <command> <code>".
+const char *error_name(ErrorCode err);
+
 #endif

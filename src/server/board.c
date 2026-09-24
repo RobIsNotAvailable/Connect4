@@ -36,32 +36,23 @@ int board_check_win(const Board *board, int row, int col)
 {
     CellPlayer cellPlayer = board->cells[row][col];
 
-    // Each of the four lines through (row, col) is "the cell itself" (1)
-    // plus how far the same player's discs extend in both opposite
-    // directions along that line. Checked one axis at a time, returning
-    // as soon as one reaches 4 instead of always computing all four.
-    int horizontal = 1 + count_direction(board, row, col, cellPlayer, 0, 1)
-                       + count_direction(board, row, col, cellPlayer, 0, -1);
+    // The four lines through (row, col): horizontal, vertical and the two
+    // diagonals. Each one is "the cell itself" (1) plus how far the same
+    // player's discs extend from it in both directions along the line.
+    static const int directions[4][2] = { {0, 1}, {1, 0}, {1, 1}, {1, -1} };
 
-    if (horizontal >= 4) return 1;
-    
-
-    int vertical = 1 + count_direction(board, row, col, cellPlayer, 1, 0)
-                     + count_direction(board, row, col, cellPlayer, -1, 0);
-
-    if (vertical >= 4) return 1;
-    
-
-    int diag_down = 1 + count_direction(board, row, col, cellPlayer, 1, 1)
-                      + count_direction(board, row, col, cellPlayer, -1, -1);
-
-    if (diag_down >= 4) return 1;
-    
-
-    int diag_up = 1 + count_direction(board, row, col, cellPlayer, 1, -1)
-                    + count_direction(board, row, col, cellPlayer, -1, 1);
-
-    return diag_up >= 4;
+    for (int i = 0; i < 4; i++)
+    {
+        int drow = directions[i][0];
+        int dcol = directions[i][1];
+        int line = 1 + count_direction(board, row, col, cellPlayer, drow, dcol)
+                     + count_direction(board, row, col, cellPlayer, -drow, -dcol);
+        if (line >= 4)
+        {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static int in_bounds(int row, int col)
@@ -104,16 +95,14 @@ void board_to_string(const Board *board, char *out)
 
 int board_is_full(const Board *board)
 {
-    for (int row = 0; row < BOARD_ROWS; row++)
+    // A disc always falls to the lowest empty cell, so a column is full
+    // exactly when its top cell is taken: the board is full when its top row is.
+    for (int col = 0; col < BOARD_COLS; col++)
     {
-        for (int col = 0; col < BOARD_COLS; col++)
+        if (board->cells[0][col] == PLAYER_NONE)
         {
-            if (board->cells[row][col] == PLAYER_NONE)
-            {
-                return 0;
-            }
+            return 0;
         }
     }
     return 1;
 }
-

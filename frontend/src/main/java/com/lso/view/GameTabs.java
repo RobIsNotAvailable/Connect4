@@ -16,6 +16,7 @@ public class GameTabs extends JTabbedPane
 {
     private final GameController games;
     private final GameEndController ends;
+    private int waitingRequests; // shown by the bell of every board
 
     public GameTabs(GameController games, GameEndController ends)
     {
@@ -31,12 +32,24 @@ public class GameTabs extends JTabbedPane
         GamePanel panel = panelOf(session.getId());
         if(panel == null)
         {
-            addTab(title, new GamePanel(games, ends, session));
+            panel = new GamePanel(games, ends, session);
+            panel.setWaitingRequests(waitingRequests);
+            addTab(title, panel);
         }
         else
         {
             panel.show(session);
             setTitleAt(indexOfComponent(panel), title);
+        }
+    }
+
+    // How many requests to join our rooms wait: every board shows it.
+    public void setWaitingRequests(int count)
+    {
+        waitingRequests = count;
+        for(int i = 0; i < getTabCount(); i++)
+        {
+            ((GamePanel) getComponentAt(i)).setWaitingRequests(count);
         }
     }
 

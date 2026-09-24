@@ -53,6 +53,7 @@ public class MainController
         joins = new JoinController(connection, dialogs, lobbyPanel);
 
         games = new GameController(this, connection, dialogs);
+        dialogs.onJoinRequests(games::setWaitingRequests);
         mainPanel.add(games.screen(), "Games");
         ends = games.ends();
         lobby = new LobbyController(connection, dialogs, lobbyPanel, games);
@@ -232,7 +233,7 @@ public class MainController
         SwingUtilities.invokeLater(() ->
         {
             UiUtil.installLookAndFeel();
-            new MainController();
+            new MainController();43
         });
     }
 }

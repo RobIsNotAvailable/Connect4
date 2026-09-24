@@ -1,22 +1,16 @@
-#include <pthread.h>
 #include <string.h>
 #include "game_registry.h"
 
-// The public functions below are already declared in game_registry.h.
-// These are the private helpers defined in this file, forward-declared
-// here so each can be defined after its first caller: leave_game_slot and
-// free_slot after game_registry_handle_disconnect, game_id_is_valid after
-// game_registry_set_pending.
-static void leave_game_slot(int index, int sock, LeaveEvent *event);
-static void free_slot(int index);
-static int game_id_is_valid(int game_id);
-static int count_matches(int sock);
+static Game *find_game(int game_id);
+static int is_player(const Game *g, int sock);
+static int count_games(int sock);
+static void start_round(Game *g);
+static void leave_game(Game *g, int sock, LeaveEvent *event);
 
-// Thread-safe registry of games, mirroring ClientList (see
-// client_registry.c): a slot map indexed directly by id (games[id - 1] IS
-// the game with that id when its state isn't GAME_EMPTY), with the same
-// free-id stack scheme so ids get reused instead of growing forever, and
-// lookups by id are O(1) instead of a scan.
+// The games, with no lock of their own: the server calls every function of
+// this file with its command_mutex held (server.c). A slot map indexed
+// directly by id, like ClientList (client_registry.c): games[id - 1] IS the
+// game with that id when its state isn't GAME_EMPTY, and freed ids are reused.
 typedef struct
 {
     Game games[MAX_GAMES];      // slot map: games[id - 1] is the game with that id, or GAME_EMPTY if free
@@ -24,167 +18,119 @@ typedef struct
     int next_id;                // bump allocator: next never-before-used id, used when free_ids is empty
     int free_ids[MAX_GAMES];    // stack of freed ids waiting to be reused
     int free_count;             // how many entries in free_ids are currently valid
-    pthread_mutex_t mutex;      // guards every field above
 } GameRegistry;
 
-static GameRegistry registry = {
-    .count = 0,
-    .next_id = 1,
-    .free_count = 0,
-    .mutex = PTHREAD_MUTEX_INITIALIZER
-};
+static GameRegistry registry = { .next_id = 1 };
 
-CreateResult game_create(int owner_sock, const char *name, Game *out_game)
+ErrorCode game_create(int owner_sock, const char *name, Game *out_game)
 {
-    Game new_game = {
-        .id = -1,
+    if (count_games(owner_sock) >= MAX_GAMES_PER_PLAYER)
+    {
+        return ERR_TOO_MANY_GAMES;
+    }
+    if (registry.count >= MAX_GAMES)
+    {
+        return ERR_SERVER_FULL;
+    }
+
+    int id = (registry.free_count > 0)
+        ? registry.free_ids[--registry.free_count]
+        : registry.next_id++;
+    registry.count++;
+
+    // What is not named here is zero: an empty board, no turn, no winner,
+    // no votes.
+    Game *g = &registry.games[id - 1];
+    *g = (Game) {
+        .id = id,
         .owner_sock = owner_sock,
         .state = GAME_WAITING,
         .pending_joiner_sock = -1,
-        .player2_sock = -1,
-        .turn = 0,
-        .winner = 0
+        .player2_sock = -1
     };
-    strncpy(new_game.name, name, ROOM_NAME_LEN);
-    board_init(&new_game.board);
+    strncpy(g->name, name, ROOM_NAME_LEN);
 
-    CreateResult result;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (count_matches(owner_sock) >= MAX_GAMES_PER_PLAYER)
-    {
-        result = CREATE_ERR_TOO_MANY_GAMES;
-    }
-    else if (registry.count >= MAX_GAMES)
-    {
-        result = CREATE_ERR_SERVER_FULL;
-    }
-    else
-    {
-        int id = (registry.free_count > 0)
-            ? registry.free_ids[--registry.free_count]
-            : registry.next_id++;
-
-        new_game.id = id;
-        registry.games[id - 1] = new_game; // direct slot write, no scan
-        registry.count++;
-        *out_game = new_game;
-        result = CREATE_OK;
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
+    *out_game = *g;
+    return ERR_NONE;
 }
 
-// Returns how many games 'sock' is a player of (owner or player2), in any state:
-// the rooms that still wait for an opponent count too. Caller must hold
-// registry.mutex.
-static int count_matches(int sock)
-{
-    int n = 0;
-
-    for (int i = 0; i < registry.next_id - 1; i++)
-    {
-        const Game *g = &registry.games[i];
-        if (g->state != GAME_EMPTY && (g->owner_sock == sock || g->player2_sock == sock))
-        {
-            n++;
-        }
-    }
-    return n;
-}
-
-// A single client can be involved (as owner, pending joiner, or player2)
-// in several games at once and have more pending join requests
-// so this has to check every occupied slot. Bounded by the highest
-// id ever handed out rather than MAX_GAMES, and only runs once per
-// disconnect (not per request), so the scan is cheap in practice.
+// A single client can be involved (as owner, pending joiner, or player2) in
+// several games at once, so this checks every occupied slot. Bounded by the
+// highest id ever handed out rather than MAX_GAMES, and only runs once per
+// disconnect, so the scan is cheap.
 int game_registry_handle_disconnect(int sock, LeaveEvent *events)
 {
     int n = 0;
 
-    pthread_mutex_lock(&registry.mutex);
-
     for (int i = 0; i < registry.next_id - 1; i++)
     {
-        if (registry.games[i].state == GAME_EMPTY)
+        Game *g = &registry.games[i];
+        if (g->state == GAME_EMPTY)
         {
             continue;
         }
 
-        if (registry.games[i].pending_joiner_sock == sock)
+        if (g->pending_joiner_sock == sock)
         {
-            events[n].type = LEAVE_JOIN_CANCELLED;
-            events[n].game_id = registry.games[i].id;
-            events[n].notify_sock = registry.games[i].owner_sock;
-            events[n].other_sock = -1;
-            n++;
-            registry.games[i].pending_joiner_sock = -1;
+            events[n++] = (LeaveEvent) {
+                .type = LEAVE_JOIN_CANCELLED,
+                .game_id = g->id,
+                .notify_sock = g->owner_sock,
+                .other_sock = -1
+            };
+            g->pending_joiner_sock = -1;
         }
-        else if (registry.games[i].owner_sock == sock || registry.games[i].player2_sock == sock)
+        else if (is_player(g, sock))
         {
-            leave_game_slot(i, sock, &events[n]);
-            n++;
+            leave_game(g, sock, &events[n++]);
         }
     }
-
-    pthread_mutex_unlock(&registry.mutex);
 
     return n;
 }
 
-LeaveResult game_registry_leave(int game_id, int sock, LeaveEvent *event)
+ErrorCode game_registry_leave(int game_id, int sock, LeaveEvent *event)
 {
-    LeaveResult result = LEAVE_ERR_NOT_FOUND;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
+    Game *g = find_game(game_id);
+    if (g == NULL)
     {
-        int i = game_id - 1;
-
-        if (registry.games[i].owner_sock != sock && registry.games[i].player2_sock != sock)
-        {
-            result = LEAVE_ERR_NOT_PLAYER;
-        }
-        else
-        {
-            leave_game_slot(i, sock, event);
-            result = LEAVE_OK;
-        }
+        return ERR_NOT_FOUND;
+    }
+    if (!is_player(g, sock))
+    {
+        return ERR_NOT_PLAYER;
     }
 
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
+    leave_game(g, sock, event);
+    return ERR_NONE;
 }
 
-// 'sock' leaves the game at slot 'index' (0-based) - the rules of
-// docs/protocol.md §8, whatever the game's state. 'sock' must be that
-// game's owner or player2. Fills 'event' with what the caller has to
-// notify. Caller must hold registry.mutex.
+// 'sock', the owner or player2 of 'g', leaves it - the rules of
+// docs/protocol.md §8, whatever the game's state. Fills 'event' with what the
+// caller has to notify.
 //
 // Whoever is left in the game keeps it. If that is the owner, the game goes
 // back to WAITING with a fresh board. If the owner is the one who left, the
 // other player takes over as owner (always possible: the game already counts
-// toward their MAX_GAMES_PER_PLAYER). With nobody left, the game is removed.
-static void leave_game_slot(int index, int sock, LeaveEvent *event)
+// toward their MAX_GAMES_PER_PLAYER). With nobody left, the game is removed
+// and its id goes back to the free-id stack.
+static void leave_game(Game *g, int sock, LeaveEvent *event)
 {
-    Game *g = &registry.games[index];
-    int owner_left = (g->owner_sock == sock);
-    int remaining_sock = owner_left ? g->player2_sock : g->owner_sock; // -1 if nobody is left
+    int remaining_sock = game_opponent(g, sock); // -1 if nobody is left
 
-    event->game_id = g->id;
+    *event = (LeaveEvent) {
+        .type = (remaining_sock == -1) ? LEAVE_ROOM_CLOSED : LEAVE_ROOM_REOPENED,
+        .game_id = g->id,
+        .notify_sock = remaining_sock,
+        .other_sock = remaining_sock
+    };
     strncpy(event->name, g->name, ROOM_NAME_LEN);
-    event->notify_sock = -1;
-    event->other_sock = remaining_sock;
 
     if (remaining_sock == -1)
     {
-        event->type = LEAVE_ROOM_CLOSED;
-        free_slot(index);
+        registry.free_ids[registry.free_count++] = g->id;
+        registry.count--;
+        g->state = GAME_EMPTY;
         return;
     }
 
@@ -194,358 +140,265 @@ static void leave_game_slot(int index, int sock, LeaveEvent *event)
     board_init(&g->board);
     g->turn = 0;
     g->winner = 0;
-
-    event->type = LEAVE_ROOM_REOPENED;
-    event->notify_sock = remaining_sock;
 }
 
-// Frees the slot at 'index' (0-based): returns its id to the free-id
-// stack for reuse and marks the slot empty, so future occupancy checks
-// (game_id_is_valid, the loops above/below) see it as free. Caller must
-// hold registry.mutex and already know the slot is occupied. Resetting
-// 'id' to 0 isn't required for correctness anymore (state is now the
-// only occupancy signal that's ever checked), kept only so a freed slot
-// doesn't show a stale game number if the registry is ever inspected
-// while debugging.
-static void free_slot(int index)
-{
-    registry.free_ids[registry.free_count++] = registry.games[index].id;
-    registry.games[index].id = 0;
-    registry.games[index].state = GAME_EMPTY;
-    registry.count--;
-}
-
-// Listing "all games in state X" is inherently a full pass (there's no
-// single slot to jump to for that), so this is the one place the registry
-// still walks its range - bounded by the highest id ever handed out and
-// skipping free slots.
-int game_registry_list_waiting(int req_sock, GameInfo *out)
+int game_registry_list_waiting(int except_sock, Game *out)
 {
     int n = 0;
-
-    pthread_mutex_lock(&registry.mutex);
 
     for (int i = 0; i < registry.next_id - 1 && n < MAX_GAMES_IN_LIST; i++)
     {
-        if (registry.games[i].state == GAME_WAITING && registry.games[i].owner_sock != req_sock)
+        if (registry.games[i].state == GAME_WAITING && registry.games[i].owner_sock != except_sock)
         {
-            out[n].game_id = registry.games[i].id;
-            strncpy(out[n].name, registry.games[i].name, ROOM_NAME_LEN);
-            out[n].owner_sock = registry.games[i].owner_sock;
-            n++;
+            out[n++] = registry.games[i];
         }
     }
-
-    pthread_mutex_unlock(&registry.mutex);
-
     return n;
 }
 
-JoinSetResult game_registry_set_pending(int game_id, int joiner_sock, Game *out_game)
-{
-    JoinSetResult result = JOIN_ERR_NOT_FOUND;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
-    {
-        int i = game_id - 1;
-
-        if (registry.games[i].owner_sock == joiner_sock)
-        {
-            result = JOIN_ERR_SELF_JOIN;
-        }
-        else if (registry.games[i].state != GAME_WAITING)
-        {
-            result = JOIN_ERR_NOT_WAITING;
-        }
-        else if (registry.games[i].pending_joiner_sock != -1)
-        {
-            result = JOIN_ERR_ALREADY_PENDING;
-        }
-        else if (count_matches(joiner_sock) >= MAX_GAMES_PER_PLAYER)
-        {
-            result = JOIN_ERR_TOO_MANY_GAMES;
-        }
-        else
-        {
-            registry.games[i].pending_joiner_sock = joiner_sock;
-            result = JOIN_OK;
-        }
-
-        *out_game = registry.games[i];
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
-}
-
-// Returns 1 if game_id refers to a currently occupied slot, 0 otherwise.
-// game_id comes straight from the client, so it's bounds-checked first;
-// the slot's state then says whether it actually holds a game (not
-// stale/free). Caller must hold registry.mutex - used by
-// game_registry_set_pending above and game_registry_resolve_join below,
-// to avoid repeating this check inline.
-static int game_id_is_valid(int game_id)
-{
-    return game_id >= 1 && game_id <= MAX_GAMES && registry.games[game_id - 1].state != GAME_EMPTY;
-}
-
-ResolveResult game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game)
-{
-    ResolveResult result = RESOLVE_ERR_NOT_FOUND;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
-    {
-        int i = game_id - 1;
-        int joiner_sock = registry.games[i].pending_joiner_sock;
-
-        if (registry.games[i].owner_sock != owner_sock)
-        {
-            result = RESOLVE_ERR_NOT_OWNER;
-        }
-        else if (joiner_sock == -1)
-        {
-            result = RESOLVE_ERR_NO_PENDING;
-        }
-        else if (accepted && count_matches(joiner_sock) >= MAX_GAMES_PER_PLAYER)
-        {
-            // set_pending only checked the joiner when the request was made,
-            // and a client can have requests pending in several games:
-            // others may have been accepted since. The request is cancelled
-            // - the game stays WAITING for someone else.
-            registry.games[i].pending_joiner_sock = -1;
-            result = RESOLVE_ERR_JOINER_FULL;
-        }
-        else
-        {
-            if (accepted)
-            {
-                registry.games[i].state = GAME_PLAYING;
-                registry.games[i].player2_sock = joiner_sock;
-                registry.games[i].turn = 1; // player 1 (the owner) moves first
-                // A new round: votes left over from a previous game in this room don't count.
-                registry.games[i].owner_wants_rematch = 0;
-                registry.games[i].player2_wants_rematch = 0;
-            }
-            registry.games[i].pending_joiner_sock = -1;
-            result = RESOLVE_OK;
-        }
-
-        *out_game = registry.games[i];
-        if (result == RESOLVE_OK || result == RESOLVE_ERR_JOINER_FULL)
-        {
-            // pending_joiner_sock was just cleared above, but the caller
-            // still needs to know who to notify with JOIN_RESULT.
-            out_game->pending_joiner_sock = joiner_sock;
-        }
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
-}
-
-MoveResult game_registry_apply_move(int game_id, int player_sock, int column, int is_active, Game *out_game)
-{
-    MoveResult result = MOVE_ERR_NOT_FOUND;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
-    {
-        int i = game_id - 1;
-        int player = 0;
-
-        if (registry.games[i].owner_sock == player_sock)
-        {
-            player = 1;
-        }
-        else if (registry.games[i].player2_sock == player_sock)
-        {
-            player = 2;
-        }
-
-        if (player == 0)
-        {
-            result = MOVE_ERR_NOT_PLAYER;
-        }
-        else if (registry.games[i].state != GAME_PLAYING)
-        {
-            result = MOVE_ERR_NOT_PLAYING;
-        }
-        else if (!is_active)
-        {
-            result = MOVE_ERR_NOT_ACTIVE;
-        }
-        else if (registry.games[i].turn != player)
-        {
-            result = MOVE_ERR_NOT_YOUR_TURN;
-        }
-        else
-        {
-            int row;
-            CellPlayer disc = (player == 1) ? PLAYER_1 : PLAYER_2;
-            DropResult dr = board_drop_disc(&registry.games[i].board, column, disc, &row);
-
-            if (dr == DROP_INVALID_COLUMN)
-            {
-                result = MOVE_ERR_INVALID_COLUMN;
-            }
-            else if (dr == DROP_COLUMN_FULL)
-            {
-                result = MOVE_ERR_COLUMN_FULL;
-            }
-            else if (board_check_win(&registry.games[i].board, row, column))
-            {
-                registry.games[i].state = GAME_FINISHED;
-                registry.games[i].turn = 0;
-                registry.games[i].winner = player;
-                result = MOVE_OK;
-            }
-            else if (board_is_full(&registry.games[i].board))
-            {
-                registry.games[i].state = GAME_FINISHED;
-                registry.games[i].turn = 0;
-                registry.games[i].winner = 0; // draw
-                result = MOVE_OK;
-            }
-            else
-            {
-                registry.games[i].turn = (player == 1) ? 2 : 1;
-                result = MOVE_OK;
-            }
-        }
-
-        *out_game = registry.games[i];
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
-}
-
-RematchResult game_registry_rematch(int game_id, int sock, Game *out_game)
-{
-    RematchResult result = REMATCH_ERR_NOT_FOUND;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
-    {
-        Game *g = &registry.games[game_id - 1];
-        int is_owner = (g->owner_sock == sock);
-        int *my_vote = is_owner ? &g->owner_wants_rematch : &g->player2_wants_rematch;
-        int *opponent_vote = is_owner ? &g->player2_wants_rematch : &g->owner_wants_rematch;
-
-        if (!is_owner && g->player2_sock != sock)
-        {
-            result = REMATCH_ERR_NOT_PLAYER;
-        }
-        else if (g->state != GAME_FINISHED)
-        {
-            result = REMATCH_ERR_NOT_FINISHED;
-        }
-        else if (*my_vote)
-        {
-            result = REMATCH_ERR_ALREADY_VOTED;
-        }
-        else if (!*opponent_vote)
-        {
-            *my_vote = 1;
-            result = REMATCH_WAITING;
-        }
-        else
-        {
-            g->state = GAME_PLAYING;
-            board_init(&g->board);
-            g->turn = 1; // player 1 (the owner) moves first
-            g->winner = 0;
-            g->owner_wants_rematch = 0;
-            g->player2_wants_rematch = 0;
-            result = REMATCH_STARTED;
-        }
-
-        *out_game = *g;
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
-}
-int game_registry_list_my_games(int sock, MyGameInfo *out, int max)
+int game_registry_list_my_games(int sock, Game *out, int max)
 {
     int n = 0;
 
-    pthread_mutex_lock(&registry.mutex);
-
     for (int i = 0; i < registry.next_id - 1 && n < max; i++)
     {
-        const Game *g = &registry.games[i];
-        
-        if (g->state != GAME_EMPTY && (g->owner_sock == sock || g->player2_sock == sock))
+        if (registry.games[i].state != GAME_EMPTY && is_player(&registry.games[i], sock))
         {
-            int is_owner = (g->owner_sock == sock);
-
-            out[n].game_id = g->id;
-            strncpy(out[n].name, g->name, ROOM_NAME_LEN);
-            out[n].opponent_sock = is_owner ? g->player2_sock : g->owner_sock;
-            out[n].my_player = is_owner ? 1 : 2;
-            out[n].state = g->state;
-            out[n].turn = g->turn;
-            n++;
+            out[n++] = registry.games[i];
         }
     }
-
-    pthread_mutex_unlock(&registry.mutex);
-
     return n;
+}
+
+int game_opponent(const Game *g, int sock)
+{
+    return (g->owner_sock == sock) ? g->player2_sock : g->owner_sock;
+}
+
+ErrorCode game_registry_set_pending(int game_id, int joiner_sock, Game *out_game)
+{
+    Game *g = find_game(game_id);
+    if (g == NULL)
+    {
+        return ERR_NOT_FOUND;
+    }
+    if (g->owner_sock == joiner_sock)
+    {
+        return ERR_SELF_JOIN;
+    }
+    if (g->state != GAME_WAITING)
+    {
+        return ERR_NOT_WAITING;
+    }
+    if (g->pending_joiner_sock != -1)
+    {
+        return ERR_ALREADY_PENDING;
+    }
+    if (count_games(joiner_sock) >= MAX_GAMES_PER_PLAYER)
+    {
+        return ERR_TOO_MANY_GAMES;
+    }
+
+    g->pending_joiner_sock = joiner_sock;
+    *out_game = *g;
+    return ERR_NONE;
+}
+
+ErrorCode game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game)
+{
+    Game *g = find_game(game_id);
+    if (g == NULL)
+    {
+        return ERR_NOT_FOUND;
+    }
+    if (g->owner_sock != owner_sock)
+    {
+        return ERR_NOT_OWNER;
+    }
+    if (g->pending_joiner_sock == -1)
+    {
+        return ERR_NO_PENDING;
+    }
+
+    int joiner_sock = g->pending_joiner_sock;
+    ErrorCode err = ERR_NONE;
+    g->pending_joiner_sock = -1;
+
+    if (accepted && count_games(joiner_sock) >= MAX_GAMES_PER_PLAYER)
+    {
+        // set_pending only checked the joiner when the request was made, and
+        // a client can have requests pending in several games: others may
+        // have been accepted since. The request is cancelled - the game stays
+        // WAITING for someone else.
+        err = ERR_JOINER_FULL;
+    }
+    else if (accepted)
+    {
+        g->player2_sock = joiner_sock;
+        start_round(g);
+    }
+
+    *out_game = *g;
+    out_game->pending_joiner_sock = joiner_sock; // who the answer is for
+    return err;
+}
+
+ErrorCode game_registry_apply_move(int game_id, int player_sock, int column, int is_active, Game *out_game)
+{
+    Game *g = find_game(game_id);
+    if (g == NULL)
+    {
+        return ERR_NOT_FOUND;
+    }
+
+    int player = (g->owner_sock == player_sock) ? 1 : (g->player2_sock == player_sock) ? 2 : 0;
+    if (player == 0)
+    {
+        return ERR_NOT_PLAYER;
+    }
+    if (g->state != GAME_PLAYING)
+    {
+        return ERR_NOT_PLAYING;
+    }
+    if (!is_active)
+    {
+        return ERR_NOT_ACTIVE;
+    }
+    if (g->turn != player)
+    {
+        return ERR_NOT_YOUR_TURN;
+    }
+
+    int row;
+    DropResult dr = board_drop_disc(&g->board, column, (player == 1) ? PLAYER_1 : PLAYER_2, &row);
+    if (dr == DROP_INVALID_COLUMN)
+    {
+        return ERR_INVALID_COLUMN;
+    }
+    if (dr == DROP_COLUMN_FULL)
+    {
+        return ERR_COLUMN_FULL;
+    }
+
+    int won = board_check_win(&g->board, row, column);
+    if (won || board_is_full(&g->board))
+    {
+        g->state = GAME_FINISHED;
+        g->turn = 0;
+        g->winner = won ? player : 0; // 0: a draw
+    }
+    else
+    {
+        g->turn = (player == 1) ? 2 : 1;
+    }
+
+    *out_game = *g;
+    return ERR_NONE;
+}
+
+ErrorCode game_registry_rematch(int game_id, int sock, Game *out_game)
+{
+    Game *g = find_game(game_id);
+    if (g == NULL)
+    {
+        return ERR_NOT_FOUND;
+    }
+    if (!is_player(g, sock))
+    {
+        return ERR_NOT_PLAYER;
+    }
+    if (g->state != GAME_FINISHED)
+    {
+        return ERR_NOT_FINISHED;
+    }
+
+    int is_owner = (g->owner_sock == sock);
+    int *my_vote = is_owner ? &g->owner_wants_rematch : &g->player2_wants_rematch;
+    int opponent_voted = is_owner ? g->player2_wants_rematch : g->owner_wants_rematch;
+    if (*my_vote)
+    {
+        return ERR_ALREADY_PENDING;
+    }
+
+    if (opponent_voted)
+    {
+        start_round(g);
+    }
+    else
+    {
+        *my_vote = 1;
+    }
+
+    *out_game = *g;
+    return ERR_NONE;
 }
 
 RoomState game_registry_state(int game_id)
 {
-    RoomState state = GAME_EMPTY;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
-    {
-        state = registry.games[game_id - 1].state;
-    }
-
-    pthread_mutex_unlock(&registry.mutex);
-
-    return state;
+    Game *g = find_game(game_id);
+    return g ? g->state : GAME_EMPTY;
 }
 
-ActivateResult game_registry_check_activate(int game_id, int sock)
+ErrorCode game_registry_check_activate(int game_id, int sock)
 {
-    ActivateResult result = ACTIVATE_ERR_NOT_FOUND;
-
-    pthread_mutex_lock(&registry.mutex);
-
-    if (game_id_is_valid(game_id))
+    Game *g = find_game(game_id);
+    if (g == NULL)
     {
-        const Game *g = &registry.games[game_id - 1];
+        return ERR_NOT_FOUND;
+    }
+    if (!is_player(g, sock))
+    {
+        return ERR_NOT_PLAYER;
+    }
+    if (g->state == GAME_WAITING)
+    {
+        return ERR_NOT_PLAYING;
+    }
+    return ERR_NONE;
+}
 
-        if (g->owner_sock != sock && g->player2_sock != sock)
+// The game with id 'game_id', or NULL. 'game_id' comes straight from the
+// client, so it is bounds-checked first.
+static Game *find_game(int game_id)
+{
+    if (game_id < 1 || game_id > MAX_GAMES || registry.games[game_id - 1].state == GAME_EMPTY)
+    {
+        return NULL;
+    }
+    return &registry.games[game_id - 1];
+}
+
+// 'sock' is the owner or the second player of 'g' (not just a pending joiner).
+static int is_player(const Game *g, int sock)
+{
+    return g->owner_sock == sock || g->player2_sock == sock;
+}
+
+// How many games 'sock' is a player of, in any state: the rooms that still
+// wait for an opponent count too (MAX_GAMES_PER_PLAYER).
+static int count_games(int sock)
+{
+    int n = 0;
+
+    for (int i = 0; i < registry.next_id - 1; i++)
+    {
+        if (registry.games[i].state != GAME_EMPTY && is_player(&registry.games[i], sock))
         {
-            result = ACTIVATE_ERR_NOT_PLAYER;
-        }
-        else if (g->state == GAME_WAITING)
-        {
-            result = ACTIVATE_ERR_NOT_PLAYING;
-        }
-        else
-        {
-            result = ACTIVATE_OK;
+            n++;
         }
     }
+    return n;
+}
 
-    pthread_mutex_unlock(&registry.mutex);
-
-    return result;
+// A game starts, after an accepted join or both votes for a rematch: empty
+// board, player 1 (the owner) moves first, and the votes of an earlier game
+// in this room no longer count.
+static void start_round(Game *g)
+{
+    g->state = GAME_PLAYING;
+    board_init(&g->board);
+    g->turn = 1;
+    g->winner = 0;
+    g->owner_wants_rematch = 0;
+    g->player2_wants_rematch = 0;
 }

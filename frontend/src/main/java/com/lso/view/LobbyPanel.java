@@ -219,6 +219,11 @@ public class LobbyPanel extends JPanel
     // "Your turn" is what a player looks for in this list, so it stands out.
     private static class MyGamesRenderer extends javax.swing.table.DefaultTableCellRenderer
     {
+        MyGamesRenderer()
+        {
+            setHorizontalAlignment(SwingConstants.CENTER); // like the other cells (TransparentTable)
+        }
+
         @Override
         public Component getTableCellRendererComponent(javax.swing.JTable table, Object value,
                                                        boolean isSelected, boolean hasFocus, int row, int column)

@@ -23,6 +23,7 @@ import javax.swing.JTable;
 import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.UIManager;
+import javax.swing.table.DefaultTableCellRenderer;
 
 import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
 import org.kordamp.ikonli.swing.FontIcon;
@@ -68,6 +69,12 @@ public class UiUtil
     public static Icon personIcon(int size, Color color)
     {
         return FontIcon.of(FontAwesomeSolid.USER, size, color);
+    }
+
+    // The bell of the join requests (GamePanel).
+    public static Icon bellIcon(Color color)
+    {
+        return FontIcon.of(FontAwesomeSolid.BELL, 20, color);
     }
 
     // The colour of the discs of player 1 or 2.
@@ -161,6 +168,11 @@ public class UiUtil
             getTableHeader().setFont(getFont().deriveFont(Font.BOLD, 16f));
             getTableHeader().setReorderingAllowed(false);
             getTableHeader().setResizingAllowed(false);
+
+            // Every entry centred, under its header (which FlatLaf centres).
+            DefaultTableCellRenderer cells = new DefaultTableCellRenderer();
+            cells.setHorizontalAlignment(SwingConstants.CENTER);
+            setDefaultRenderer(Object.class, cells);
         }
 
         // The rows only display what the server sent: a double click must

@@ -182,6 +182,29 @@ public class FlowTest extends Rig
         selectTab(21);
         check("finished game's tab: its box again", shown() && message().equals("Waiting for the opponent's decision..."), box());
 
+        // ---- The bell: the requests to join our rooms, during a game
+
+        click("Home");
+        select("myGamesTable", 0);
+        lobbyButton("Resume");
+        check("no request: the bell is empty", bell().isEmpty(), bell());
+        server("JOIN_NOTIFY 30 Olga");
+        server("JOIN_NOTIFY 31 Pia");
+        check("two requests during a game: no box, the bell counts them", !shown() && bell().equals("2"), box() + " / " + bell());
+        sent();
+        clickBell();
+        check("bell: the first request, over the board", shown() && message().equals("Olga wants to join your game. Accept?"), box());
+        check("bell: one left", bell().equals("1"), bell());
+        click("Accept");
+        check("bell: the answer reaches the server", sent().contains("JOIN_RESPONSE 30 1"));
+        check("bell: the box closes, the other request keeps waiting", !shown() && bell().equals("1"), box() + " / " + bell());
+        server("JOIN_CANCELLED 31");
+        check("a request withdrawn: the bell is empty again", bell().isEmpty(), bell());
+        server("JOIN_NOTIFY 33 Rita");
+        server("GAME_START 32 1 Quinn");
+        selectTab(32);
+        check("a new board counts the requests too", bell().equals("1"), bell());
+
         finish("FlowTest");
     }
 }

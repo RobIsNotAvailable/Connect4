@@ -5,6 +5,8 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
+import java.util.function.Predicate;
 
 import com.lso.view.OverlayPanel.Choice;
 
@@ -14,7 +16,8 @@ import com.lso.view.OverlayPanel.Choice;
 // without Rematch / Leave room. So a notice waits in a queue until the overlay
 // is free, and a join request also waits for the lobby. A box the player has
 // to answer is shown at once instead, and a notice it replaces goes back to
-// the front of the queue.
+// the front of the queue. During a game the bell of the board shows how many
+// join requests wait, and opens the first one (showJoinRequest).
 public class Dialogs
 {
     // 'joinRoom' is the id of the room when the notice is a join request, which
@@ -25,6 +28,7 @@ public class Dialogs
     private final BooleanSupplier inGame; // a game is on screen: join requests wait
     private final Deque<Notice> pending = new ArrayDeque<>();
     private Notice shown;
+    private IntConsumer onJoinRequests = count -> {};
 
     public Dialogs(OverlayPanel overlay, BooleanSupplier inGame)
     {
@@ -36,6 +40,13 @@ public class Dialogs
     public void notice(String title, String message)
     {
         queue(new Notice(null, title, message, new Choice[] {new Choice("OK", this::close)}));
+    }
+
+    // 'listener' is told how many join requests wait in the queue, whenever
+    // that changes.
+    public void onJoinRequests(IntConsumer listener)
+    {
+        this.onJoinRequests = listener;
     }
 
     // A request to join room 'roomId', in the queue until the lobby is shown.
@@ -52,6 +63,14 @@ public class Dialogs
         {
             close();
         }
+        joinRequestsChanged();
+    }
+
+    // The first join request of the queue, now, even during a game (the bell).
+    // Nothing happens while another box is open.
+    public void showJoinRequest()
+    {
+        showFirst(n -> n.joinRoom() != null);
     }
 
     // A box to answer now.
@@ -75,6 +94,7 @@ public class Dialogs
         pending.clear();
         shown = null;
         overlay.showChoice(title, message, choices);
+        joinRequestsChanged();
     }
 
     // Every box is closed through here, so the next notice in line appears.
@@ -93,6 +113,7 @@ public class Dialogs
         {
             pending.addFirst(shown);
             shown = null;
+            joinRequestsChanged();
         }
     }
 
@@ -106,10 +127,18 @@ public class Dialogs
     private void queue(Notice notice)
     {
         pending.add(notice);
+        joinRequestsChanged();
         showNext();
     }
 
     private void showNext()
+    {
+        showFirst(n -> n.joinRoom() == null || !inGame.getAsBoolean());
+    }
+
+    // Shows the first notice of the queue that 'which' accepts, unless a box
+    // is already open.
+    private void showFirst(Predicate<Notice> which)
     {
         if(overlay.isVisible())
         {
@@ -119,13 +148,19 @@ public class Dialogs
         for(Iterator<Notice> it = pending.iterator(); it.hasNext();)
         {
             Notice next = it.next();
-            if(next.joinRoom() == null || !inGame.getAsBoolean())
+            if(which.test(next))
             {
                 it.remove();
                 shown = next;
                 overlay.showChoice(next.title(), next.message(), next.choices());
+                joinRequestsChanged();
                 return;
             }
         }
+    }
+
+    private void joinRequestsChanged()
+    {
+        onJoinRequests.accept((int) pending.stream().filter(n -> n.joinRoom() != null).count());
     }
 }

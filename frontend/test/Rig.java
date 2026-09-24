@@ -321,6 +321,19 @@ public class Rig
         return labelText(gamePanel(), "notificationLabel");
     }
 
+    // The bell of the board on screen: how many join requests it counts ("" for none).
+    static String bell() throws Exception
+    {
+        String[] text = new String[1];
+        edt(() -> text[0] = ((JButton) get(gamePanel(), "bellButton")).getText());
+        return text[0];
+    }
+
+    static void clickBell() throws Exception
+    {
+        edt(() -> ((JButton) get(gamePanel(), "bellButton")).doClick(0));
+    }
+
     // The names in the bar over the board on screen: "player 1 | player 2".
     static String players() throws Exception
     {

@@ -226,3 +226,33 @@ int is_valid_name(const char *s, size_t max_len)
     }
     return 1;
 }
+
+const char *error_name(ErrorCode err)
+{
+    static const char *const names[] = {
+        [ERR_NONE]            = "NONE",
+        [ERR_UNKNOWN_COMMAND] = "UNKNOWN_COMMAND",
+        [ERR_BAD_ARGS]        = "BAD_ARGS",
+        [ERR_INVALID_NAME]    = "INVALID_NAME",
+        [ERR_SERVER_FULL]     = "SERVER_FULL",
+        [ERR_TOO_MANY_GAMES]  = "TOO_MANY_GAMES",
+        [ERR_NO_USERNAME]     = "NO_USERNAME",
+        [ERR_ALREADY_NAMED]   = "ALREADY_NAMED",
+        [ERR_USERNAME_TAKEN]  = "USERNAME_TAKEN",
+        [ERR_NOT_FOUND]       = "NOT_FOUND",
+        [ERR_NOT_WAITING]     = "NOT_WAITING",
+        [ERR_SELF_JOIN]       = "SELF_JOIN",
+        [ERR_ALREADY_PENDING] = "ALREADY_PENDING",
+        [ERR_NOT_OWNER]       = "NOT_OWNER",
+        [ERR_NO_PENDING]      = "NO_PENDING",
+        [ERR_NOT_PLAYER]      = "NOT_PLAYER",
+        [ERR_NOT_PLAYING]     = "NOT_PLAYING",
+        [ERR_NOT_ACTIVE]      = "NOT_ACTIVE",
+        [ERR_JOINER_FULL]     = "JOINER_FULL",
+        [ERR_NOT_YOUR_TURN]   = "NOT_YOUR_TURN",
+        [ERR_INVALID_COLUMN]  = "INVALID_COLUMN",
+        [ERR_COLUMN_FULL]     = "COLUMN_FULL",
+        [ERR_NOT_FINISHED]    = "NOT_FINISHED"
+    };
+    return names[err];
+}

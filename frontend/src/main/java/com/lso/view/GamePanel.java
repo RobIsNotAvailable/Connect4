@@ -22,6 +22,7 @@ public class GamePanel extends JPanel
 
     private final GameController games;
     private final GameEndController ends;
+    private final JButton bellButton;
     private JLabel player1Label;
     private JLabel player2Label;
     private BoardView boardView;
@@ -66,6 +67,13 @@ public class GamePanel extends JPanel
         abandonBtn.setMargin(new Insets(12, 15, 12, 15));
         abandonBtn.addActionListener(e -> ends.askAbandonGame(this.session.getId()));
 
+        // The requests to join our rooms, which wait for the lobby: the bell
+        // counts them, and a click answers the first one here.
+        bellButton = UiUtil.createStyledButton("");
+        bellButton.setMargin(new Insets(12, 15, 12, 15));
+        bellButton.addActionListener(e -> games.showJoinRequest());
+        setWaitingRequests(0);
+
         // GridBagLayout keeps the buttons at their own size, side by side and
         // centred in the cell.
         GridBagConstraints between = new GridBagConstraints();
@@ -75,6 +83,7 @@ public class GamePanel extends JPanel
         middle.setOpaque(false);
         middle.add(homeBtn, between);
         middle.add(abandonBtn, between);
+        middle.add(bellButton, between);
 
         // A bar of its own, lighter than the background and closed by a line,
         // so the players are visibly separated from the board. Three equal
@@ -174,6 +183,13 @@ public class GamePanel extends JPanel
             notificationTimer.stop();
         }
         UiUtil.setStrip(notificationLabel, null);
+    }
+
+    // How many requests to join our rooms wait for an answer.
+    public void setWaitingRequests(int count)
+    {
+        bellButton.setText(count > 0 ? String.valueOf(count) : "");
+        bellButton.setIcon(UiUtil.bellIcon(count > 0 ? UiUtil.ACCENT : UiUtil.BACKGROUND_GRAY));
     }
 
     // Draws the game on screen again: call it when that game changed.

@@ -1,8 +1,7 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-// The constants of the text protocol (docs/protocol.md) and the types the
-// server shares between its modules to build the replies.
+// The constants of the text protocol (docs/protocol.md).
 
 #define PORT 8080
 
@@ -17,34 +16,37 @@
 // Maximum length of one protocol line, '\n' included (see docs/protocol.md).
 #define MAX_LINE 1024
 
-// State machine for a single game registry slot: EMPTY (no game there,
-// either never used or freed) -> WAITING (just created, joinable) ->
-// PLAYING (two players in, moves being made) -> FINISHED (won/lost/draw).
-// GAME_EMPTY is never sent over the wire (docs/protocol.md never mentions
-// it - GAME_LIST only ever lists WAITING games); it exists purely so the
-// server's game registry can tell "no game here" apart from an actual
-// game's state using this one field, instead of a separate id-based
-// sentinel. It MUST stay the first value (0): the registry's slot array
-// is a zero-initialized static array, so an unused slot's state starts as
-// GAME_EMPTY automatically, with no explicit initialization needed.
-typedef enum
-{
-    GAME_EMPTY,
-    GAME_WAITING,
-    GAME_PLAYING,
-    GAME_FINISHED
-} RoomState;
-
+// At most this many rooms in a GAME_LIST (docs/protocol.md §3).
 #define MAX_GAMES_IN_LIST 32
 
-// One entry used by the server to build a GAME_LIST reply (see
-// docs/protocol.md §3). The owner is identified by socket: the caller looks
-// its username up in the client registry when it builds the line.
-typedef struct
+// The error codes of docs/protocol.md §1.5, in the order of its table.
+// ERR_NONE (0) means no error; error_name() (net.h) gives the word sent in
+// "ERROR <command> <code>".
+typedef enum
 {
-    int game_id;
-    char name[ROOM_NAME_LEN];
-    int owner_sock;
-} GameInfo;
+    ERR_NONE,
+    ERR_UNKNOWN_COMMAND,
+    ERR_BAD_ARGS,
+    ERR_INVALID_NAME,
+    ERR_SERVER_FULL,
+    ERR_TOO_MANY_GAMES,
+    ERR_NO_USERNAME,
+    ERR_ALREADY_NAMED,
+    ERR_USERNAME_TAKEN,
+    ERR_NOT_FOUND,
+    ERR_NOT_WAITING,
+    ERR_SELF_JOIN,
+    ERR_ALREADY_PENDING,
+    ERR_NOT_OWNER,
+    ERR_NO_PENDING,
+    ERR_NOT_PLAYER,
+    ERR_NOT_PLAYING,
+    ERR_NOT_ACTIVE,
+    ERR_JOINER_FULL,
+    ERR_NOT_YOUR_TURN,
+    ERR_INVALID_COLUMN,
+    ERR_COLUMN_FULL,
+    ERR_NOT_FINISHED
+} ErrorCode;
 
 #endif

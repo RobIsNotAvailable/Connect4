@@ -140,6 +140,18 @@ public class GameController
         }
     }
 
+    // The bell of the boards: how many requests to join our rooms wait, and a
+    // click shows the first one even during a game.
+    void setWaitingRequests(int count)
+    {
+        tabs.setWaitingRequests(count);
+    }
+
+    public void showJoinRequest()
+    {
+        dialogs.showJoinRequest();
+    }
+
     // ERROR MOVE NOT_ACTIVE. We say which game we are on whenever we show one,
     // so this means our idea of the active game and the server's differ: say it
     // again. The move that was refused is lost, the next click works.

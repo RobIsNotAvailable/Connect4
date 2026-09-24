@@ -36,6 +36,8 @@ with Server() as srv:
     a.send_raw("CREATE_GAME Città\n".encode("utf-8"))
     check("accents are not allowed", a.take_all(), ["ERROR CREATE_GAME INVALID_NAME"])
     check("nothing was created", a.ask("LIST_GAMES", "GAME_LIST"), "GAME_LIST 0")
+    check("LIST_GAMES takes no argument", a.ask("LIST_GAMES x", "ERROR"), "ERROR LIST_GAMES BAD_ARGS")
+    check("LIST_MY_GAMES neither", a.ask("LIST_MY_GAMES x", "ERROR"), "ERROR LIST_MY_GAMES BAD_ARGS")
     check("nobody was told", b.take_all(), [])
 
     # a new room: the creator gets GAME_CREATED and NOT NEW_GAME, the others get NEW_GAME
