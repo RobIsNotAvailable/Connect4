@@ -5,27 +5,23 @@ import javax.swing.JPanel;
 import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import com.lso.GameSession;
-import com.lso.MainController;
+import com.lso.controller.GameController;
+import com.lso.controller.GameEndController;
 
 public class GamePanel extends JPanel
 {
     // How long a notification stays on screen.
     public static final int NOTIFICATION_MILLIS = 6000;
 
-    private MainController controller;
+    private final GameController games;
+    private final GameEndController ends;
     private JLabel player1Label;
     private JLabel player2Label;
     private BoardView boardView;
@@ -36,9 +32,10 @@ public class GamePanel extends JPanel
     private JLabel notificationLabel;
     private javax.swing.Timer notificationTimer;
 
-    public GamePanel(MainController controller)
+    public GamePanel(GameController games, GameEndController ends, GameSession session)
     {
-        this.controller = controller;
+        this.games = games;
+        this.ends = ends;
         setLayout(new BorderLayout(0, 20));
         setOpaque(false);
 
@@ -57,24 +54,17 @@ public class GamePanel extends JPanel
             label.setIconTextGap(10);
             label.setBorder(BorderFactory.createEmptyBorder(12, 20, 12, 20));
         }
-        showTurn(1);
 
         // Home leaves the board and keeps the game, which waits as it is;
         // Abandon gives it up. Even margins, unlike the other buttons, so the
         // text sits on the same line as the names.
         JButton homeBtn = UiUtil.createStyledButton("Home");
         homeBtn.setMargin(new Insets(12, 15, 12, 15));
-        homeBtn.addActionListener(e -> controller.goHome());
+        homeBtn.addActionListener(e -> games.goHome());
 
         JButton abandonBtn = UiUtil.createStyledButton("Abandon");
         abandonBtn.setMargin(new Insets(12, 15, 12, 15));
-        abandonBtn.addActionListener(e ->
-        {
-            if(session != null)
-            {
-                controller.askAbandonGame(session.getId());
-            }
-        });
+        abandonBtn.addActionListener(e -> ends.askAbandonGame(this.session.getId()));
 
         // GridBagLayout keeps the buttons at their own size, side by side and
         // centred in the cell.
@@ -101,11 +91,7 @@ public class GamePanel extends JPanel
         // to the lobby, or to another game), so the player knows why nothing
         // happens. It is always there, blank when there is nothing to say, so
         // the board does not change size when it appears.
-        awayLabel = UiUtil.createStyledLabel(" ");
-        awayLabel.setFont(awayLabel.getFont().deriveFont(16f));
-        awayLabel.setForeground(UiUtil.BACKGROUND_BLACK);
-        awayLabel.setBackground(UiUtil.ACCENT);
-        awayLabel.setBorder(BorderFactory.createEmptyBorder(5, 20, 5, 20));
+        awayLabel = UiUtil.createStripLabel(UiUtil.ACCENT, UiUtil.BACKGROUND_BLACK);
 
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
@@ -113,13 +99,13 @@ public class GamePanel extends JPanel
         top.add(awayLabel, BorderLayout.SOUTH);
         add(top, BorderLayout.NORTH);
 
-        boardView = new BoardView();
+        boardView = new BoardView(this::play);
         add(boardView, BorderLayout.CENTER);
 
-        JPanel controlsPanel = new JPanel(new GridLayout(1, 7, 10, 0));
+        JPanel controlsPanel = new JPanel(new GridLayout(1, GameSession.COLUMNS, 10, 0));
         controlsPanel.setOpaque(false);
 
-        for (int i = 0; i < 7; i++) 
+        for (int i = 0; i < GameSession.COLUMNS; i++)
         {
             final int col = i;
             JButton btn = UiUtil.createStyledButton("Col " + (i + 1));
@@ -132,26 +118,23 @@ public class GamePanel extends JPanel
         // Above the column buttons: what happens in the games that are not on
         // screen. Blank when there is nothing to say, like the strip on top, so
         // the board keeps its size.
-        notificationLabel = UiUtil.createStyledLabel(" ");
-        notificationLabel.setFont(notificationLabel.getFont().deriveFont(16f));
-        notificationLabel.setForeground(Color.WHITE);
-        notificationLabel.setBackground(UiUtil.ACCENT_SECONDARY);
-        notificationLabel.setBorder(BorderFactory.createEmptyBorder(5, 20, 5, 20));
+        notificationLabel = UiUtil.createStripLabel(UiUtil.ACCENT_SECONDARY, Color.WHITE);
 
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setOpaque(false);
         bottom.add(notificationLabel, BorderLayout.NORTH);
         bottom.add(controlsPanel, BorderLayout.CENTER);
         add(bottom, BorderLayout.SOUTH);
+
+        show(session);
     }
 
+    // The game to show: the one it was made for, then its rematches.
     public void show(GameSession session)
     {
         this.session = session;
         clearNotification();
-        // A hidden board does not hear the mouse leave it: forget where it
-        // was, the ghost comes back as soon as the mouse moves on the board.
-        boardView.setHover(-1);
+        boardView.setSession(session);
         refresh();
     }
 
@@ -163,11 +146,9 @@ public class GamePanel extends JPanel
     // A move in a column, from its button, its key or a click on the board.
     private void play(int col)
     {
-        // The keys 1-7 reach this even while a box is open over the board
-        // (the box stops only the mouse): the box is answered first
-        if (session != null && session.canPlay(col) && !controller.isOverlayOpen())
+        if (session.canPlay(col))
         {
-            controller.sendMessage("MOVE " + session.getId() + " " + col);
+            games.move(session.getId(), col);
         }
     }
 
@@ -175,9 +156,7 @@ public class GamePanel extends JPanel
     // it is not worth a box that stops the game the player is looking at.
     public void showNotification(String text)
     {
-        notificationLabel.setText(text);
-        notificationLabel.setOpaque(true);
-        notificationLabel.repaint();
+        UiUtil.setStrip(notificationLabel, text);
 
         if(notificationTimer != null)
         {
@@ -194,27 +173,19 @@ public class GamePanel extends JPanel
         {
             notificationTimer.stop();
         }
-        notificationLabel.setText(" ");
-        notificationLabel.setOpaque(false);
-        notificationLabel.repaint();
+        UiUtil.setStrip(notificationLabel, null);
     }
 
     // Draws the game on screen again: call it when that game changed.
     public void refresh()
     {
-        if(session == null)
-            return;
-        
         int me = session.getMyPlayer();
         player1Label.setText(session.getPlayerName(1) + (me == 1 ? " (You)" : ""));
         player2Label.setText(session.getPlayerName(2) + (me == 2 ? " (You)" : ""));
         
         showTurn(session.getTurn());
 
-        boolean away = session.isOpponentAway();
-        awayLabel.setOpaque(away);
-        awayLabel.setText(away ? session.getOpponent() + " is away from this game" : " ");
-        awayLabel.repaint();
+        UiUtil.setStrip(awayLabel, session.isOpponentAway() ? session.getOpponent() + " is away from this game" : null);
 
         boardView.repaint();
     }
@@ -223,138 +194,14 @@ public class GamePanel extends JPanel
     // When the game is over (turn 0) both are back to normal.
     private void showTurn(int turn)
     {
-        styleBadge(player1Label, UiUtil.ERROR_RED, turn != 2);
-        styleBadge(player2Label, UiUtil.SUCCESS_GREEN, turn != 1);
+        styleBadge(player1Label, UiUtil.playerColor(1), turn != 2);
+        styleBadge(player2Label, UiUtil.playerColor(2), turn != 1);
     }
 
     private void styleBadge(JLabel label, Color color, boolean active)
     {
         int alpha = active ? 255 : 90;
-        label.setIcon(new UiUtil.PersonIcon(36, withAlpha(color, alpha)));
-        label.setForeground(withAlpha(Color.WHITE, alpha));
-    }
-
-    private static Color withAlpha(Color color, int alpha)
-    {
-        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
-    }
-
-    private class BoardView extends JPanel
-    {
-        // The column under the mouse, -1 when the mouse is not on the board.
-        private int hoverCol = -1;
-
-        public BoardView()
-        {
-            setOpaque(false);
-
-            MouseAdapter mouse = new MouseAdapter()
-            {
-                // Pressed and not clicked: Swing drops the click if the mouse
-                // moves even by a pixel between press and release.
-                @Override
-                public void mousePressed(MouseEvent e)
-                {
-                    int col = columnAt(e.getX());
-                    if (col >= 0 && SwingUtilities.isLeftMouseButton(e))
-                    {
-                        play(col);
-                    }
-                }
-
-                @Override
-                public void mouseMoved(MouseEvent e)
-                {
-                    setHover(columnAt(e.getX()));
-                }
-
-                @Override
-                public void mouseExited(MouseEvent e)
-                {
-                    setHover(-1);
-                }
-            };
-            addMouseListener(mouse);
-            addMouseMotionListener(mouse);
-        }
-
-        // Drawn again only when the column changes, not at every pixel.
-        private void setHover(int col)
-        {
-            if (col != hoverCol)
-            {
-                hoverCol = col;
-                repaint();
-            }
-        }
-
-        // The column under the point x: each one is a strip as wide as a
-        // seventh of the board, as in paintComponent. -1 for the few pixels
-        // left over on the right.
-        private int columnAt(int x)
-        {
-            int col = x / (getWidth() / 7);
-            return col < 7 ? col : -1;
-        }
-
-        @Override
-        protected void paintComponent(Graphics g) 
-        {
-            super.paintComponent(g);
-            Graphics2D g2d = (Graphics2D) g;
-            g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-            String board = (session != null) ? session.getBoard() : GameSession.EMPTY_BOARD;
-
-            int cellWidth = getWidth() / 7;
-            int cellHeight = getHeight() / 6;
-            int diameter = Math.min(cellWidth, cellHeight) - 10;
-
-            // The ghost: where my disc would land in the column under the
-            // mouse. Only where I could play, so it goes away by itself when
-            // the turn passes, the column fills up or the game is over.
-            int ghostRow = -1;
-            Color ghostColor = null;
-            if (session != null && hoverCol >= 0 && session.canPlay(hoverCol))
-            {
-                ghostRow = session.landingRow(hoverCol);
-                ghostColor = withAlpha(session.getMyPlayer() == 1 ? UiUtil.ERROR_RED : UiUtil.SUCCESS_GREEN, 90);
-            }
-
-            for (int row = 0; row < 6; row++)
-            {
-                for (int col = 0; col < 7; col++) 
-                {
-                    int x = col * cellWidth + (cellWidth - diameter) / 2;
-                    int y = row * cellHeight + (cellHeight - diameter) / 2;
-
-                    char cell = board.charAt(row * 7 + col);
-                    if (cell == '1') 
-                    {
-                        g2d.setColor(UiUtil.ERROR_RED); 
-                    } 
-                    else if (cell == '2') 
-                    {
-                        g2d.setColor(UiUtil.SUCCESS_GREEN); 
-                    } 
-                    else 
-                    {
-                        g2d.setColor(UiUtil.BACKGROUND_GRAY); 
-                    }
-
-                    g2d.fillOval(x, y, diameter, diameter);
-
-                    // See-through, on top of the empty hole.
-                    if (row == ghostRow && col == hoverCol)
-                    {
-                        g2d.setColor(ghostColor);
-                        g2d.fillOval(x, y, diameter, diameter);
-                    }
-
-                    g2d.setColor(UiUtil.ACCENT);
-                    g2d.drawOval(x, y, diameter, diameter);
-                }
-            }
-        }
+        label.setIcon(new UiUtil.PersonIcon(36, UiUtil.withAlpha(color, alpha)));
+        label.setForeground(UiUtil.withAlpha(Color.WHITE, alpha));
     }
 }

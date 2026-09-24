@@ -171,6 +171,8 @@ public class FlowTest extends Rig
         // The tab of a finished game brings its box back, as Resume does.
         click("Home");
         server("MY_GAME_LIST 2 20 r20 Kim 1 PLAYING 1 HERE 21 r21 Lea 2 FINISHED 0 HERE");
+        check("My Games: our turn", "Your turn".equals(cell("myGamesTable", 0, 3)), "" + cell("myGamesTable", 0, 3));
+        check("My Games: we voted for the rematch", "Waiting for rematch".equals(cell("myGamesTable", 1, 3)), "" + cell("myGamesTable", 1, 3));
         select("myGamesTable", 0);
         lobbyButton("Resume");
         check("Resume: the game has no box", !shown(), box());

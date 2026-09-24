@@ -10,7 +10,6 @@ import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseMotionAdapter;
 import java.util.function.Consumer;
-import java.util.function.IntConsumer;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -101,56 +100,44 @@ public class OverlayPanel extends JPanel
         g.fillRect(0, 0, getWidth(), getHeight());
     }
 
-    // A message with a row of buttons. onChoice gets the index of the button
-    // that was clicked. Calling it again replaces the content.
-    public void showChoice(String title, String message, String[] buttonTexts, IntConsumer onChoice)
+    // A button of a box: its text, and what a click on it does.
+    public record Choice(String text, Runnable action) {}
+
+    // A message with a row of buttons. Calling it again replaces the content.
+    public void showChoice(String title, String message, Choice... choices)
     {
-        JButton[] buttons = new JButton[buttonTexts.length];
-
-        for(int i = 0; i < buttonTexts.length; i++)
+        JButton[] buttons = new JButton[choices.length];
+        for(int i = 0; i < choices.length; i++)
         {
-            final int index = i;
-            buttons[i] = UiUtil.createStyledButton(buttonTexts[i]);
-            buttons[i].addActionListener(e ->
-            {
-                if(!justOpened())
-                {
-                    onChoice.accept(index);
-                }
-            });
+            buttons[i] = button(choices[i]);
         }
-
         open(title, message, null, buttons);
     }
 
     // A message with a text field, which starts with 'text' (so a name that
     // was refused can be corrected instead of typed again). onSubmit gets the
-    // typed text, from the submit button or from Enter; onCancel runs when
-    // the other button is clicked.
+    // typed text, from the submit button or from Enter.
     public void showInput(String title, String message, String text,
-                          String submitText, Consumer<String> onSubmit,
-                          String cancelText, Runnable onCancel)
+                          String submitText, Consumer<String> onSubmit, Choice cancel)
     {
-        JButton submitButton = UiUtil.createStyledButton(submitText);
-        submitButton.addActionListener(e ->
-        {
-            if(!justOpened())
-            {
-                onSubmit.accept(inputField.getText());
-            }
-        });
-
-        JButton cancelButton = UiUtil.createStyledButton(cancelText);
-        cancelButton.addActionListener(e ->
-        {
-            if(!justOpened())
-            {
-                onCancel.run();
-            }
-        });
-
-        open(title, message, text, submitButton, cancelButton);
+        JButton submit = button(new Choice(submitText, () -> onSubmit.accept(inputField.getText())));
+        open(title, message, text, submit, button(cancel));
         inputField.addActionListener(e -> onSubmit.accept(inputField.getText()));
+    }
+
+    // Clicks that come right after the box opened or changed are ignored
+    // (CLICK_GUARD_MILLIS).
+    private JButton button(Choice choice)
+    {
+        JButton button = UiUtil.createStyledButton(choice.text());
+        button.addActionListener(e ->
+        {
+            if(!justOpened())
+            {
+                choice.action().run();
+            }
+        });
+        return button;
     }
 
     public void close()

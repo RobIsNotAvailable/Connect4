@@ -13,7 +13,9 @@ import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import com.lso.MainController;
+import com.lso.controller.GameController;
+import com.lso.controller.JoinController;
+import com.lso.controller.LobbyController;
 
 public class LobbyPanel extends JPanel
 {
@@ -23,14 +25,22 @@ public class LobbyPanel extends JPanel
     private JLabel statusLabel;
     private JButton deleteBtn;
     private JButton resumeBtn;
+
+    // What the buttons call: set by connect(), since these controllers need
+    // the panel themselves (to fill the lists and the status line).
+    private LobbyController lobby;
+    private JoinController joins;
+    private GameController games;
+
     // What the Status column says of a room of ours that has no opponent yet:
     // there is no game to resume, but the room can be deleted.
     public static final String WAITING_STATUS = "Waiting for a player";
+    // What it says of a game where it is our move: it stands out (see
+    // MyGamesRenderer).
+    public static final String YOUR_TURN = "Your turn";
 
-    private final String[] COLUMN_NAMES = {"Game ID", "Name", "Owner"};
-    private final String[] OWNED_GAMES_COLUMN_NAMES = {"Game ID", "Name", "Opponent", "Status", "Opponent is"};
 
-    public LobbyPanel(MainController controller)
+    public LobbyPanel()
     {
         setLayout(new BorderLayout(0, 20));
         setOpaque(false);
@@ -51,19 +61,15 @@ public class LobbyPanel extends JPanel
 
         add(header, BorderLayout.NORTH);
 
-        gameTable = new UiUtil.TransparentTable(new Object[0][3], COLUMN_NAMES);
-        gameTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
-        gameTable.hideColumn(0); // the id: the player picks a room by its name
+        gameTable = new UiUtil.TransparentTable("Game ID", "Name", "Owner");
 
         // The games we are playing, under the rooms to join. Selecting a row in
         // one table deselects the other, so the buttons below always refer to
         // the one the player is looking at.
-        myGamesTable = new UiUtil.TransparentTable(new Object[0][5], OWNED_GAMES_COLUMN_NAMES);
-        myGamesTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+        myGamesTable = new UiUtil.TransparentTable("Game ID", "Name", "Opponent", "Status", "Opponent is");
         myGamesTable.setDefaultRenderer(Object.class, new MyGamesRenderer());
-        myGamesTable.hideColumn(0);
 
-        // The columns are kept across updates (see hideColumn), so the widths
+        // The columns are kept across updates (see setRows), so the widths
         // are set once: the status needs more room than the names.
         int[] widths = {170, 150, 170, 190};
         for(int i = 0; i < widths.length; i++)
@@ -94,12 +100,12 @@ public class LobbyPanel extends JPanel
                 int gameId = Integer.parseInt(gameTable.getCellValue(row, 0).toString());
                 String roomName = gameTable.getCellValue(row, 1).toString();
                 String owner = gameTable.getCellValue(row, 2).toString();
-                controller.joinGame(gameId, roomName, owner);
+                joins.join(gameId, roomName, owner);
             }
         });
 
         JButton createBtn = UiUtil.createStyledButton("Create Game");
-        createBtn.addActionListener(e -> controller.askRoomName());
+        createBtn.addActionListener(e -> lobby.askRoomName());
 
         // Our rooms are not in Available Games (the server leaves them out), so
         // the room to delete is the one selected in My Games.
@@ -112,7 +118,7 @@ public class LobbyPanel extends JPanel
             {
                 String gameId = myGamesTable.getCellValue(row, 0).toString();
                 String roomName = myGamesTable.getCellValue(row, 1).toString();
-                controller.askDeleteRoom(gameId, roomName);
+                lobby.askDeleteRoom(gameId, roomName);
             }
         });
         gameTable.getSelectionModel().addListSelectionListener(e ->
@@ -125,7 +131,7 @@ public class LobbyPanel extends JPanel
 
         resumeBtn = UiUtil.createStyledButton("Resume");
         resumeBtn.setEnabled(false);
-        resumeBtn.addActionListener(e -> resumeSelected(controller));
+        resumeBtn.addActionListener(e -> resumeSelected());
         myGamesTable.getSelectionModel().addListSelectionListener(e ->
         {
             if(myGamesTable.getSelectedRow() != -1)
@@ -142,7 +148,7 @@ public class LobbyPanel extends JPanel
             {
                 if(e.getClickCount() == 2 && myGamesTable.rowAtPoint(e.getPoint()) != -1)
                 {
-                    resumeSelected(controller);
+                    resumeSelected();
                 }
             }
         });
@@ -166,6 +172,13 @@ public class LobbyPanel extends JPanel
         add(bottom, BorderLayout.SOUTH);
     }
 
+    public void connect(LobbyController lobby, JoinController joins, GameController games)
+    {
+        this.lobby = lobby;
+        this.joins = joins;
+        this.games = games;
+    }
+
     public void setUsername(String username)
     {
         usernameLabel.setText(username);
@@ -184,45 +197,22 @@ public class LobbyPanel extends JPanel
         statusLabel.setText(" ");
     }
 
-    // The rooms are listed again whenever anyone creates, joins or leaves one,
-    // so the selected room stays selected across the update.
-    public void updateGameList(Object[][] data)
+    public void updateGameList(Object[][] rows)
     {
-        setDataKeepingSelection(gameTable, data, COLUMN_NAMES);
+        gameTable.setRows(rows);
     }
 
-    // The list of the games we are playing is asked again after every move of
-    // the opponents, so the selected game stays selected across the update.
     public void updateMyGames(Object[][] rows)
     {
-        setDataKeepingSelection(myGamesTable, rows, OWNED_GAMES_COLUMN_NAMES);
+        myGamesTable.setRows(rows);
     }
 
-    // New data means a new model, which clears the selection: the row with
-    // the same id (column 0) is selected again, if it is still there.
-    private static void setDataKeepingSelection(UiUtil.TransparentTable table, Object[][] rows, String[] columnNames)
-    {
-        int row = table.getSelectedRow();
-        Object selectedId = (row != -1) ? table.getCellValue(row, 0) : null;
-
-        table.setData(rows, columnNames);
-
-        for(int i = 0; i < rows.length; i++)
-        {
-            if(rows[i][0].equals(selectedId))
-            {
-                table.setRowSelectionInterval(i, i);
-                break;
-            }
-        }
-    }
-
-    private void resumeSelected(MainController controller)
+    private void resumeSelected()
     {
         int row = myGamesTable.getSelectedRow();
         if(row != -1)
         {
-            controller.resumeGame(Integer.parseInt(myGamesTable.getCellValue(row, 0).toString()));
+            games.resumeGame(Integer.parseInt(myGamesTable.getCellValue(row, 0).toString()));
         }
     }
 
@@ -235,7 +225,7 @@ public class LobbyPanel extends JPanel
         {
             Component cell = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 
-            if("Your turn".equals(value))
+            if(YOUR_TURN.equals(value))
             {
                 cell.setFont(cell.getFont().deriveFont(Font.BOLD));
                 if(!isSelected)

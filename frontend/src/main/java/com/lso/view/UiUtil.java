@@ -46,6 +46,17 @@ public class UiUtil
 
     public static final Color SUCCESS_GREEN = new Color (58, 224, 97);
 
+    // The colour of the discs of player 1 or 2.
+    public static Color playerColor(int player)
+    {
+        return (player == 1) ? ERROR_RED : SUCCESS_GREEN;
+    }
+
+    public static Color withAlpha(Color color, int alpha)
+    {
+        return new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha);
+    }
+
     public static JButton createStyledButton(String text)
     {
         JButton button = new JButton(text);
@@ -71,6 +82,27 @@ public class UiUtil
         label.setFont(new Font("Arial", Font.BOLD, 20));
 
         return label;
+    }
+
+    // A line of text on a coloured strip (see setStrip). It is always there,
+    // blank and see-through when there is nothing to say, so the layout
+    // around it does not change when a message appears.
+    public static JLabel createStripLabel(Color background, Color foreground)
+    {
+        JLabel label = createStyledLabel(" ");
+        label.setFont(label.getFont().deriveFont(16f));
+        label.setForeground(foreground);
+        label.setBackground(background);
+        label.setBorder(BorderFactory.createEmptyBorder(5, 20, 5, 20));
+        return label;
+    }
+
+    // Shows 'text' on a strip, or blanks it when 'text' is null.
+    public static void setStrip(JLabel strip, String text)
+    {
+        strip.setText(text != null ? text : " ");
+        strip.setOpaque(text != null);
+        strip.repaint();
     }
 
 
@@ -158,11 +190,16 @@ public class UiUtil
         }
     }
 
+    // A list of rooms or games: one row can be selected, and the first column
+    // holds the id, which the code reads but the player does not see.
     public static class TransparentTable extends JTable
     {
-        public TransparentTable(Object[][] data, String[] columnNames)
+        private final String[] columnNames;
+
+        public TransparentTable(String... columnNames)
         {
-            super(data, columnNames);
+            super(new Object[0][columnNames.length], columnNames);
+            this.columnNames = columnNames;
 
             setFillsViewportHeight(true);
             setOpaque(false);
@@ -171,6 +208,13 @@ public class UiUtil
             setFont(getFont().deriveFont(20f));
             setRowHeight(30);
             setShowGrid(false);
+            setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+
+            // The id stays in the model, so its values can be read, but it is
+            // not shown. The columns are kept when the data is replaced
+            // (setRows), otherwise a new model would bring it back.
+            setAutoCreateColumnsFromModel(false);
+            removeColumn(getColumnModel().getColumn(0));
 
             JTableHeader header = getTableHeader();
             header.setBackground(UiUtil.ACCENT_SECONDARY);
@@ -200,19 +244,25 @@ public class UiUtil
             return false;
         }
 
-        public void setData(Object[][] data, String[] columnNames)
+        // New rows mean a new model, which clears the selection: the row with
+        // the same id is selected again, if it is still there. The lists are
+        // sent again whenever anything changes, and the player must not lose
+        // the row they picked.
+        public void setRows(Object[][] rows)
         {
-            setModel(new javax.swing.table.DefaultTableModel(data, columnNames));
-        }
+            int row = getSelectedRow();
+            Object selectedId = (row != -1) ? getCellValue(row, 0) : null;
 
-        // A column that is only there for the code (an id): it stays in the
-        // model, so its values can be read, but it is not shown. The columns
-        // are kept when the data is replaced (setData), otherwise a new model
-        // would bring the hidden one back.
-        public void hideColumn(int modelColumn)
-        {
-            setAutoCreateColumnsFromModel(false);
-            removeColumn(getColumnModel().getColumn(convertColumnIndexToView(modelColumn)));
+            setModel(new javax.swing.table.DefaultTableModel(rows, columnNames));
+
+            for(int i = 0; i < rows.length; i++)
+            {
+                if(rows[i][0].equals(selectedId))
+                {
+                    setRowSelectionInterval(i, i);
+                    break;
+                }
+            }
         }
 
         // Reads the model, not the view: unlike getValueAt it does not depend

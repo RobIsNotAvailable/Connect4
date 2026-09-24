@@ -1,4 +1,5 @@
-import com.lso.MainController;
+import com.lso.controller.MainController;
+import com.lso.view.GamePanel;
 import com.lso.view.OverlayPanel;
 
 import java.awt.Component;
@@ -13,7 +14,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -73,14 +73,15 @@ public class Rig
         });
         System.setOut(new PrintStream(OutputStream.nullOutputStream()));
 
-        ServerSocket listener = new ServerSocket(Integer.getInteger("test.port"));
+        ServerSocket listener = new ServerSocket(Integer.getInteger("server.port"));
         edt(() -> controller = new MainController());
         connection = listener.accept();
 
         // The network thread sets 'out' as soon as it is connected; from then
         // on the client writes to us.
+        Object client = get(controller, "connection");
         long deadline = System.currentTimeMillis() + 5000;
-        while(get(controller, "out") == null)
+        while(get(client, "out") == null)
         {
             if(System.currentTimeMillis() > deadline)
             {
@@ -88,8 +89,8 @@ public class Rig
             }
             Thread.sleep(10);
         }
-        edt(() -> set(controller, "out", new PrintWriter(outgoing, true)));
-        overlay = (OverlayPanel) get(controller, "overlay");
+        edt(() -> set(client, "out", new PrintWriter(outgoing, true)));
+        overlay = (OverlayPanel) get(get(controller, "dialogs"), "overlay");
     }
 
     // Gets past the username box, which every test meets first.
@@ -231,6 +232,14 @@ public class Rig
         return row[0];
     }
 
+    // What a table of the lobby shows in a cell ('column' counts the hidden id).
+    static Object cell(String table, int row, int column) throws Exception
+    {
+        Object[] value = new Object[1];
+        edt(() -> value[0] = ((JTable) get(lobby(), table)).getModel().getValueAt(row, column));
+        return value[0];
+    }
+
     static void select(String table, int row) throws Exception
     {
         edt(() -> ((JTable) get(lobby(), table)).setRowSelectionInterval(row, row));
@@ -252,7 +261,7 @@ public class Rig
 
     static JTabbedPane tabs() throws Exception
     {
-        return (JTabbedPane) get(controller, "gamesTabs");
+        return (JTabbedPane) get(get(controller, "games"), "tabs");
     }
 
     // The board of the selected tab, the one the player sees on the game screen.
@@ -294,7 +303,16 @@ public class Rig
     // A click on the tab of game 'id', as the player would.
     static void selectTab(int id) throws Exception
     {
-        edt(() -> tabs().setSelectedComponent((Component) ((Map<?, ?>) get(controller, "activeGamePanels")).get(id)));
+        edt(() ->
+        {
+            for(Component tab : tabs().getComponents())
+            {
+                if(((GamePanel) tab).getSession().getId() == id)
+                {
+                    tabs().setSelectedComponent(tab);
+                }
+            }
+        });
     }
 
     // The line over the column buttons of the board on screen.
