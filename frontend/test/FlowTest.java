@@ -142,6 +142,9 @@ public class FlowTest extends Rig
         check("delete it: the room is deleted", sent().contains("LEAVE_GAME 13"));
         check("delete it: back in the lobby", !shown(), box());
         check("delete it: the tab is gone", !tabTitles().contains("VS Jay"), tabTitles().toString());
+        sent();
+        server("GAME_LEFT 13");
+        check("GAME_LEFT, the answer to LEAVE_GAME: nothing else happens", !shown() && sent().isEmpty(), box());
 
         // ---- The tabs: the one the player picks is the game on screen
 

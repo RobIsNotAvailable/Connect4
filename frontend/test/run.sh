@@ -17,10 +17,19 @@ PORT=18082
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
+# The libraries of the client (pom.xml), as Maven has them.
+if ! mvn -q -f "$HERE/../pom.xml" dependency:build-classpath -Dmdep.outputFile="$WORK/classpath" > "$WORK/mvn.log" 2>&1
+then
+    cat "$WORK/mvn.log"
+    echo "run.sh: Maven could not give the classpath of the client"
+    exit 2
+fi
+CP=$(cat "$WORK/classpath")
+
 # The client, apart from MainFrame (the stub in stub/, which opens no window),
 # and the tests.
 mapfile -t SOURCES < <(find "$SRC" -name '*.java' ! -name MainFrame.java)
-if ! javac -nowarn -d "$WORK/classes" "${SOURCES[@]}" \
+if ! javac -nowarn -cp "$CP" -d "$WORK/classes" "${SOURCES[@]}" \
            "$HERE/stub/com/lso/view/MainFrame.java" "$HERE"/*.java 2> "$WORK/javac.log"
 then
     cat "$WORK/javac.log"
@@ -40,7 +49,7 @@ FAILED=0
 for t in "${TESTS[@]}"
 do
     # A test takes a few seconds: one that hangs is stopped.
-    timeout 120 java -Djava.awt.headless=true -Dserver.port=$PORT -cp "$WORK/classes" "$t"
+    timeout 120 java -Djava.awt.headless=true -Dserver.port=$PORT -cp "$WORK/classes:$CP" "$t"
     case $? in
         0)   ;;
         124) echo "$t: stopped after 120 s"; FAILED=1 ;;

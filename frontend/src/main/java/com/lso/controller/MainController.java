@@ -2,7 +2,6 @@ package com.lso.controller;
 
 import java.awt.CardLayout;
 
-import javax.swing.JFrame;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
@@ -15,6 +14,7 @@ import com.lso.view.LobbyPanel;
 import com.lso.view.MainFrame;
 import com.lso.view.OverlayPanel;
 import com.lso.view.OverlayPanel.Choice;
+import com.lso.view.UiUtil;
 
 // Puts the client together and hands every line of the server to the
 // controller it is about: LobbyController (the username, the lists, creating
@@ -109,6 +109,11 @@ public class MainController
             case "GAME_CREATED":
                 connection.send("LIST_GAMES");
                 connection.send("LIST_MY_GAMES");
+                break;
+
+            // The answer to our LEAVE_GAME: the front already left the game
+            // when it sent it, so there is nothing left to do.
+            case "GAME_LEFT":
                 break;
 
             case "NEW_GAME":
@@ -222,24 +227,11 @@ public class MainController
         dialogs.notice("Error", ErrorText.of(code));
     }
 
-    static void setLaF()
-    {
-        try
-        {
-            javax.swing.UIManager.setLookAndFeel("com.formdev.flatlaf.FlatDarkLaf");
-            JFrame.setDefaultLookAndFeelDecorated(true);
-        }
-        catch(Exception e)
-        {
-            System.err.println("Failed to set Look and Feel: " + e.getMessage());
-        }
-    }
-
     public static void main(String[] args) 
     { 
         SwingUtilities.invokeLater(() ->
         {
-            setLaF();
+            UiUtil.installLookAndFeel();
             new MainController();
         });
     }

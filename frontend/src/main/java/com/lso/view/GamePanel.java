@@ -201,7 +201,7 @@ public class GamePanel extends JPanel
     private void styleBadge(JLabel label, Color color, boolean active)
     {
         int alpha = active ? 255 : 90;
-        label.setIcon(new UiUtil.PersonIcon(36, UiUtil.withAlpha(color, alpha)));
+        label.setIcon(UiUtil.personIcon(36, UiUtil.withAlpha(color, alpha)));
         label.setForeground(UiUtil.withAlpha(Color.WHITE, alpha));
     }
 }

@@ -48,7 +48,7 @@ public class LobbyPanel extends JPanel
         // Three equal columns keep the title exactly centred whatever the
         // width of the username on the right.
         usernameLabel = UiUtil.createStyledLabel("");
-        usernameLabel.setIcon(new UiUtil.PersonIcon(28));
+        usernameLabel.setIcon(UiUtil.personIcon(28, UiUtil.ACCENT));
         usernameLabel.setIconTextGap(10);
         usernameLabel.setHorizontalAlignment(SwingConstants.RIGHT);
         usernameLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 20));

@@ -1,6 +1,11 @@
 package com.lso.view;
 
+import java.awt.Color;
+
 import javax.swing.JTabbedPane;
+
+import org.kordamp.ikonli.fontawesome5.FontAwesomeSolid;
+import org.kordamp.ikonli.swing.FontIcon;
 
 import com.lso.GameSession;
 import com.lso.controller.GameController;
@@ -73,6 +78,7 @@ public class GameTabs extends JTabbedPane
     // A green dot on the tab when it is our turn in that game, grey otherwise.
     public void setMyTurn(int id, boolean myTurn)
     {
-        setIconAt(indexOfComponent(panelOf(id)), new UiUtil.DotIcon(myTurn ? UiUtil.SUCCESS_GREEN : UiUtil.BACKGROUND_GRAY, 12));
+        Color color = myTurn ? UiUtil.SUCCESS_GREEN : UiUtil.BACKGROUND_GRAY;
+        setIconAt(indexOfComponent(panelOf(id)), FontIcon.of(FontAwesomeSolid.CIRCLE, 12, color));
     }
 }

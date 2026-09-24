@@ -19,5 +19,16 @@
             <artifactId>flatlaf</artifactId>
             <version>3.5.1</version>
         </dependency>
+        <!-- The icons (FontAwesome, drawn from a font in any size and colour). -->
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-swing</artifactId>
+            <version>12.3.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-fontawesome5-pack</artifactId>
+            <version>12.3.1</version>
+        </dependency>
     </dependencies>
 </project>
