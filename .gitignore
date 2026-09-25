@@ -1,4 +1,4 @@
-/bin
+/server/bin
 /.vscode
 __pycache__/
 */target/

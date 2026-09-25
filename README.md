@@ -111,6 +111,7 @@ avviato fuori da Docker (vedi sotto) può giocare con quelli nei container.
 **Server.** Servono `gcc` e `make`:
 
 ```sh
+cd server
 make
 ./bin/server
 ```
@@ -120,7 +121,7 @@ Ascolta sulla porta 8080.
 **Client.** Servono Java 21 e Maven:
 
 ```sh
-cd frontend
+cd client
 mvn -q package dependency:copy-dependencies -DoutputDirectory=target/lib
 java -cp "target/connect4-client-1.0-SNAPSHOT.jar:target/lib/*" com.lso.MainController
 ```
@@ -154,6 +155,7 @@ una finestra: per giocare ne servono almeno due.
 gioca con dei client simulati. Serve Python 3:
 
 ```sh
+cd server
 make test
 ```
 
@@ -165,8 +167,8 @@ fanno loro da server e controllano cosa il client mostra e cosa risponde.
 Servono Java 21 e Maven:
 
 ```sh
-frontend/test/run.sh             # tutti
-frontend/test/run.sh FlowTest    # solo quelli indicati
+client/test/run.sh             # tutti
+client/test/run.sh FlowTest    # solo quelli indicati
 ```
 
 Non scrivono niente nel progetto e usano la porta 18082, quindi possono girare

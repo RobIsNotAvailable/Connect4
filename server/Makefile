@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -pthread -Iinclude
 
 BIN_DIR = bin
-SRC_SERVER = $(wildcard src/server/*.c)
+SRC_SERVER = $(wildcard src/*.c)
 HEADERS = $(wildcard include/*.h)
 
 TARGET_SERVER = $(BIN_DIR)/server

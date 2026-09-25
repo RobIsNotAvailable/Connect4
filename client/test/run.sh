@@ -3,8 +3,8 @@
 # window and without the server (see Rig.java), so they need neither a
 # screen nor a server running. From the root of the repository:
 #
-#   frontend/test/run.sh                    every test
-#   frontend/test/run.sh FlowTest           only the ones named
+#   client/test/run.sh                    every test
+#   client/test/run.sh FlowTest           only the ones named
 #
 # Nothing is written in the project: the classes go to a temporary folder.
 # Exits with 1 if a check fails, 2 if the tests can't be built.

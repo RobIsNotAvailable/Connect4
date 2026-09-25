@@ -1,7 +1,7 @@
 services:
   # The game server, reachable from the host too on port 8080.
   server:
-    build: .
+    build: ./server
     ports:
       - "8080:8080"
 
@@ -9,7 +9,7 @@ services:
   # server). How many: CLIENTS=4 docker compose up, or docker compose up
   # --scale clients=4 (2 if not said).
   clients:
-    build: ./frontend
+    build: ./client
     depends_on:
       - server
     deploy:

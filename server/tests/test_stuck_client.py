@@ -1,7 +1,7 @@
 """A client that stops reading must not freeze the others. The server sends
 with a timeout and drops a client it cannot write to (client_send_line in
-src/server/client_registry.c), instead of leaving every thread that has to
-notify it stuck for good."""
+src/client_registry.c), instead of leaving every thread that has to notify
+it stuck for good."""
 import socket
 import threading
 import time
