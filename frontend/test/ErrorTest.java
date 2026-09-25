@@ -94,10 +94,10 @@ public class ErrorTest extends Rig
         }
         sent();
 
-        // ---- The Create Game box
+        // ---- The Create Room box
 
-        lobbyButton("Create Game");
-        check("create: asks for a name", shown() && title().equals("Create Game")
+        lobbyButton("Create Room");
+        check("create: asks for a name", shown() && title().equals("Create Room")
               && message().equals("Room name:") && typed().isEmpty(), box());
         for(String blank : new String[] {"", "   "})
         {
@@ -109,26 +109,26 @@ public class ErrorTest extends Rig
         check("create: the name is sent", sent().equals(List.of("CREATE_GAME my|room")));
         check("create: the box closes", !shown(), box());
         server("ERROR CREATE_GAME INVALID_NAME");
-        check("create refused: the box is back", shown() && title().equals("Create Game")
-              && message().equals("That name is not valid: use up to 20 letters without accents, digits or symbols. Choose another one:"), box());
+        check("create refused: the box is back", shown() && title().equals("Create Room")
+              && message().equals("That name is not valid: use up to 20 characters (letters, digits and symbols, but no accented letters). Choose another one:"), box());
         check("create refused: with the name to correct", typed().equals("my room"), typed());
         click("Cancel");
         check("create: Cancel closes it", !shown(), box());
-        lobbyButton("Create Game");
+        lobbyButton("Create Room");
         check("create again: starts empty", typed().isEmpty(), typed());
         click("Cancel");
 
         // A join request that arrives while the box is open waits for it, and
         // must not be lost when the box comes back after a refusal.
-        lobbyButton("Create Game");
+        lobbyButton("Create Room");
         server("JOIN_NOTIFY 6 Ivy");
         type("room", false);
-        check("create + request: the request shows", shown() && message().equals("Ivy wants to join your game. Accept?"), box());
+        check("create + request: the request shows", shown() && message().equals("Ivy wants to join your room. Accept?"), box());
         sent();
         server("ERROR CREATE_GAME INVALID_NAME");
-        check("create + request: the name box takes its place", shown() && title().equals("Create Game"), box());
+        check("create + request: the name box takes its place", shown() && title().equals("Create Room"), box());
         click("Cancel");
-        check("create + request: the request is back", shown() && message().equals("Ivy wants to join your game. Accept?"), box());
+        check("create + request: the request is back", shown() && message().equals("Ivy wants to join your room. Accept?"), box());
         click("Decline");
         check("create + request: answered", sent().equals(List.of("JOIN_RESPONSE 6 0")));
 
@@ -139,8 +139,8 @@ public class ErrorTest extends Rig
         server("GAME_STATE 7 1 " + EMPTY_BOARD);
         server("OPPONENT_LEFT 7");
         server("ERROR MOVE NOT_PLAYING");
-        check("move: the opponent-left box", shown() && message().startsWith("Your opponent left the room"), box());
-        click("Yes, delete it");
+        check("move: the opponent-left box", shown() && message().startsWith("Your opponent left"), box());
+        click("Delete Room");
         check("move: nothing after it", !shown(), box());
 
         server("GAME_START 8 2 Bob");
@@ -150,8 +150,8 @@ public class ErrorTest extends Rig
         check("rematch: the vote is sent", sent().contains("REMATCH 8"));
         server("OPPONENT_LEFT 8");
         server("ERROR REMATCH NOT_FINISHED");
-        check("rematch: the opponent-left box", shown() && message().startsWith("Your opponent left the room"), box());
-        click("Yes, delete it");
+        check("rematch: the opponent-left box", shown() && message().startsWith("Your opponent left"), box());
+        click("Delete Room");
         server("ERROR LEAVE_GAME NOT_FOUND");
         check("rematch: nothing after it", !shown(), box());
 

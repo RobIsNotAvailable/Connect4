@@ -3,7 +3,6 @@ package com.lso.view;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
-import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.GridBagLayout;
 import java.awt.KeyboardFocusManager;
@@ -25,13 +24,13 @@ import javax.swing.SwingUtilities;
 // A dialog drawn inside the main window, used as its glass pane. Unlike a
 // JOptionPane it is not a separate window, so it can't end up behind the main
 // one, and its content can be replaced while it is open (for example
-// "Rematch / Leave room" -> "Waiting for the opponent...").
+// "Rematch / Leave Room" -> "Waiting for the opponent...").
 public class OverlayPanel extends JPanel
 {
     // For this long after it opens or changes, a box ignores its buttons. The
     // second click of a double click would otherwise hit the button that is
-    // now under the mouse: after Rematch, "Leave room" is almost where
-    // Rematch was. A box that pops up under a click is protected too.
+    // now under the mouse: after Rematch, "Home" is almost where Rematch
+    // was. A box that pops up under a click is protected too.
     public static final int CLICK_GUARD_MILLIS = 300;
 
     private long openedAt; // System.nanoTime() of the last open()
@@ -71,7 +70,7 @@ public class OverlayPanel extends JPanel
             BorderFactory.createLineBorder(UiUtil.ACCENT, 2),
             BorderFactory.createEmptyBorder(6, 8, 6, 8)
         ));
-        inputField.setFont(new Font("Arial", Font.PLAIN, 18));
+        inputField.setFont(inputField.getFont().deriveFont(18f));
         inputField.setCaretColor(Color.WHITE);
         inputField.setMaximumSize(inputField.getPreferredSize());
         inputField.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -204,6 +203,8 @@ public class OverlayPanel extends JPanel
         revalidate();
         repaint();
 
+        // The first button, so a box puts the harmless choice first: a key
+        // press is enough to activate it.
         JComponent focus = withInput ? inputField : buttons[0];
         SwingUtilities.invokeLater(focus::requestFocusInWindow);
     }

@@ -80,7 +80,7 @@ public class MainController
     // the queue no longer matter.
     private void showConnectionError(String problem)
     {
-        dialogs.showOnly("Connection error", problem, new Choice("Quit", () -> System.exit(0)));
+        dialogs.showOnly("Connection Error", problem, new Choice("Quit", () -> System.exit(0)));
     }
 
     private void handleServerMessage(String msg)

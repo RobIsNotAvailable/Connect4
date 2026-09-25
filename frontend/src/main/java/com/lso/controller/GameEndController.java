@@ -89,13 +89,13 @@ public class GameEndController
         // The room is ours and waits for players again, as it does when this
         // happens to a game that is not on screen: keeping it goes home,
         // deleting it leaves the room.
-        dialogs.show("Game Over", "Your opponent left the room, you'll be redirected to the home screen. Delete the room?",
-            new Choice("Yes, delete it", () -> leaveRoom(id)),
-            new Choice("No, keep it", () ->
+        dialogs.show("Opponent Left", "Your opponent left. Keep the room open for a new opponent?",
+            new Choice("Keep Room", () ->
             {
                 games.goHome();
                 games.removeTab(id);
-            }));
+            }),
+            new Choice("Delete Room", () -> leaveRoom(id)));
     }
 
     // Abandoning a game in the middle gives the win to nobody: the opponent
@@ -104,8 +104,8 @@ public class GameEndController
     public void askAbandonGame(int id)
     {
         dialogs.show("Abandon Game", "Abandon the game?",
-            new Choice("Abandon", () -> leaveRoom(id)),
-            new Choice("Stay", dialogs::close));
+            new Choice("Stay", dialogs::close),
+            new Choice("Abandon", () -> leaveRoom(id)));
     }
 
     // The room survives the end of the game, so the player has to choose:
@@ -122,8 +122,8 @@ public class GameEndController
         if(session.iWantRematch())
         {
             dialogs.show("Game Over", "Waiting for the opponent's decision...",
-                new Choice("Leave room", () -> leaveRoom(id)),
-                new Choice("Home", games::goHome));
+                new Choice("Home", games::goHome),
+                new Choice("Leave Room", () -> leaveRoom(id)));
             return;
         }
 
@@ -140,7 +140,7 @@ public class GameEndController
                 connection.send("REMATCH " + id);
                 showGameOver(session);
             }),
-            new Choice("Leave room", () -> leaveRoom(id)));
+            new Choice("Leave Room", () -> leaveRoom(id)));
     }
 
     // The player is out of the game: it is not theirs any more, and the room

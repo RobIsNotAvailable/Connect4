@@ -78,7 +78,7 @@ public class ClickTest extends Rig
 
         // Another game, as player 2: its id, its turn, its own board.
         server("GAME_OVER 3 WIN");
-        click("Leave room");
+        click("Leave Room");
         server("GAME_START 9 2 Carl");
         server("GAME_STATE 9 2 " + EMPTY_BOARD);
         onScreenBoard();

@@ -142,7 +142,7 @@ public class LobbyController
     void askUsername(String prompt)
     {
         dialogs.ask(
-            "Username",
+            "Welcome to Connect 4",
             prompt,
             typedUsername,
             "OK",
@@ -176,7 +176,7 @@ public class LobbyController
     private void askRoomName(String prompt)
     {
         dialogs.ask(
-            "Create Game",
+            "Create Room",
             prompt,
             typedRoomName,
             "OK",
@@ -202,13 +202,13 @@ public class LobbyController
     public void askDeleteRoom(String gameId, String roomName)
     {
         dialogs.show("Delete Room", "Delete \"" + roomName + "\"?",
+            new Choice("Cancel", dialogs::close),
             new Choice("Delete", () ->
             {
                 dialogs.close();
                 connection.send("LEAVE_GAME " + gameId);
                 connection.send("LIST_GAMES");
                 connection.send("LIST_MY_GAMES");
-            }),
-            new Choice("Cancel", dialogs::close));
+            }));
     }
 }

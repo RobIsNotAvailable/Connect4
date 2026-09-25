@@ -21,7 +21,7 @@ public final class ErrorText
             case "ALREADY_PENDING": return "Someone is already waiting to join this room. Try again in a moment.";
             case "TOO_MANY_GAMES":  return "You already have the maximum number of games (" + MainController.MAX_MATCHES + "), rooms waiting for a player included. Leave or delete one first.";
             case "SERVER_FULL":     return "The server can't host more games right now.";
-            case "INVALID_NAME":    return "That name is not valid: use up to 20 letters without accents, digits or symbols.";
+            case "INVALID_NAME":    return "That name is not valid: use up to 20 characters (letters, digits and symbols, but no accented letters).";
             case "USERNAME_TAKEN":  return "That username is already taken.";
             case "JOINER_FULL":     return "That player already has the maximum number of games (" + MainController.MAX_MATCHES + "), so their request was cancelled.";
             case "NO_PENDING":      return "That player is no longer waiting to join.";

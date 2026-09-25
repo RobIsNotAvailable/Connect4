@@ -61,16 +61,19 @@ public class GamePanel extends JPanel
         // text sits on the same line as the names.
         JButton homeBtn = UiUtil.createStyledButton("Home");
         homeBtn.setMargin(new Insets(12, 15, 12, 15));
+        homeBtn.setToolTipText("Back to the lobby: this game waits for you as it is");
         homeBtn.addActionListener(e -> games.goHome());
 
         JButton abandonBtn = UiUtil.createStyledButton("Abandon");
         abandonBtn.setMargin(new Insets(12, 15, 12, 15));
+        abandonBtn.setToolTipText("Give up this game: your opponent keeps the room");
         abandonBtn.addActionListener(e -> ends.askAbandonGame(this.session.getId()));
 
         // The requests to join our rooms, which wait for the lobby: the bell
         // counts them, and a click answers the first one here.
         bellButton = UiUtil.createStyledButton("");
         bellButton.setMargin(new Insets(12, 15, 12, 15));
+        bellButton.setToolTipText("Requests to join your rooms");
         bellButton.addActionListener(e -> games.showJoinRequest());
         setWaitingRequests(0);
 
@@ -124,6 +127,7 @@ public class GamePanel extends JPanel
             final int col = i;
             JButton btn = UiUtil.createStyledButton("Col " + (i + 1));
             UiUtil.addKeyBinding(btn, String.valueOf(i + 1));
+            btn.setToolTipText("Drop a disc in this column (key " + (i + 1) + ")");
             columnButtons[i] = btn;
             
             btn.addActionListener(e -> play(col));

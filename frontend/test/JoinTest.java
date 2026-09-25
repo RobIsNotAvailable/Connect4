@@ -7,11 +7,11 @@ public class JoinTest extends Rig
 {
     static final String WAITING_ONE = "Waiting for Carl to accept your request...";
 
-    // Selects a row of Available Games and presses Join.
+    // Selects a row of Open Rooms and presses Join.
     static void join(int row) throws Exception
     {
         select("gameTable", row);
-        lobbyButton("Join Selected");
+        lobbyButton("Join Room");
     }
 
     public static void main(String[] args) throws Exception
@@ -26,13 +26,13 @@ public class JoinTest extends Rig
         check("join: sent", sent().equals(List.of("JOIN_GAME 4")));
         check("join: status", status().equals(WAITING_ONE), status());
 
-        lobbyButton("Join Selected");
+        lobbyButton("Join Room");
         check("double click: not sent twice", sent().isEmpty());
         check("double click: no error", !shown(), box());
 
         server("JOIN_RESULT 4 0");
         check("declined: status cleared", status().isBlank(), status());
-        check("declined: says who and which room", shown() && title().equals("Request declined")
+        check("declined: says who and which room", shown() && title().equals("Request Declined")
               && message().equals("Carl declined your request to join \"roomB\"."), box());
         click("OK");
 
@@ -41,7 +41,7 @@ public class JoinTest extends Rig
         check("asked again: sent", sent().equals(List.of("JOIN_GAME 4")));
         server("GAME_CLOSED 4");
         check("room closed: status cleared", status().isBlank(), status());
-        check("room closed: says so", shown() && title().equals("Room closed")
+        check("room closed: says so", shown() && title().equals("Room Closed")
               && message().equals("\"roomB\" was closed before Carl answered your request."), box());
         click("OK");
         check("room closed: the list is asked again", sent().contains("LIST_GAMES"));
@@ -80,7 +80,7 @@ public class JoinTest extends Rig
         server("MY_GAME_LIST 5 3 r3 Bob 2 PLAYING 1 HERE 20 r20 P20 1 PLAYING 1 HERE 21 r21 P21 1 PLAYING 1 HERE"
                + " 22 r22 - 1 WAITING 0 HERE 23 r23 - 1 WAITING 0 HERE");
         server("JOIN_RESULT 6 0");
-        check("five games, waiting rooms included: cancelled, not declined", shown() && title().equals("Request cancelled")
+        check("five games, waiting rooms included: cancelled, not declined", shown() && title().equals("Request Cancelled")
               && message().equals("Your request to join \"roomC\" did not go through: you already have the maximum number of games (5)."), box());
         click("OK");
 
@@ -88,7 +88,7 @@ public class JoinTest extends Rig
         server("MY_GAME_LIST 1 3 r3 Bob 2 PLAYING 1 HERE");
         join(0);
         server("JOIN_RESULT 6 0");
-        check("a place free: declined", shown() && title().equals("Request declined"), box());
+        check("a place free: declined", shown() && title().equals("Request Declined"), box());
         click("OK");
 
         // An answer about a room the front has no record of.

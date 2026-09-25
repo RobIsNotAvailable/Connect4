@@ -33,7 +33,7 @@ public class JoinController
         this.lobbyPanel = lobbyPanel;
     }
 
-    // Join Selected. The server answers only when the owner decides, so the
+    // Join Room. The server answers only when the owner decides, so the
     // status line says we are waiting. A room already asked is not asked again
     // (a double click): the server would refuse it.
     public void join(int id, String roomName, String owner)
@@ -64,16 +64,16 @@ public class JoinController
         String roomName = (room != null) ? "\"" + room.name() + "\"" : "the room";
         if(gamesCount >= MainController.MAX_MATCHES)
         {
-            dialogs.notice("Request cancelled", "Your request to join " + roomName
+            dialogs.notice("Request Cancelled", "Your request to join " + roomName
                            + " did not go through: you already have the maximum number of games (" + MainController.MAX_MATCHES + ").");
         }
         else if(room != null)
         {
-            dialogs.notice("Request declined", room.owner() + " declined your request to join " + roomName + ".");
+            dialogs.notice("Request Declined", room.owner() + " declined your request to join " + roomName + ".");
         }
         else
         {
-            dialogs.notice("Request declined", "Your request to join the room was declined.");
+            dialogs.notice("Request Declined", "Your request to join the room was declined.");
         }
     }
 
@@ -91,7 +91,7 @@ public class JoinController
         if(asked != null)
         {
             showStatus();
-            dialogs.notice("Room closed", "\"" + asked.name() + "\" was closed before " + asked.owner() + " answered your request.");
+            dialogs.notice("Room Closed", "\"" + asked.name() + "\" was closed before " + asked.owner() + " answered your request.");
         }
     }
 
@@ -107,7 +107,7 @@ public class JoinController
     // which starts the game on Accept.
     void ask(String gameId, String joiner)
     {
-        dialogs.joinRequest(gameId, "Join Request", joiner + " wants to join your game. Accept?",
+        dialogs.joinRequest(gameId, "Join Request", joiner + " wants to join your room. Accept?",
             new Choice("Accept", () -> answer(gameId, 1)),
             new Choice("Decline", () -> answer(gameId, 0)));
     }

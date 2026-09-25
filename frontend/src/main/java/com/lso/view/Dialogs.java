@@ -13,7 +13,7 @@ import com.lso.view.OverlayPanel.Choice;
 // The boxes drawn over the window (OverlayPanel), one at a time. What
 // interrupts the player (a join request, an error) must not replace a box that
 // is already open: a Game Over swallowed by a notice would leave the player
-// without Rematch / Leave room. So a notice waits in a queue until the overlay
+// without Rematch / Leave Room. So a notice waits in a queue until the overlay
 // is free, and a join request also waits for the lobby. A box the player has
 // to answer is shown at once instead, and a notice it replaces goes back to
 // the front of the queue. During a game the bell of the board shows how many

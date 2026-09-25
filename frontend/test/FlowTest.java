@@ -12,14 +12,14 @@ public class FlowTest extends Rig
         start();
         logIn("Anna");
 
-        // ---- Available Games keeps its selection across the updates, which
+        // ---- Open Rooms keeps its selection across the updates, which
         // arrive whenever anyone creates, joins or leaves a room.
 
         server("GAME_LIST 2 3 roomA Bob 4 roomB Carl");
         select("gameTable", 1);
         server("GAME_LIST 2 3 roomA Bob 4 roomB Carl");
         check("same list: still selected", selected("gameTable") == 1, "" + selected("gameTable"));
-        lobbyButton("Join Selected");
+        lobbyButton("Join Room");
         check("join the room still selected", sent().equals(List.of("JOIN_GAME 4")));
         check("status while waiting", status().equals("Waiting for Carl to accept your request..."), status());
         server("ERROR JOIN_GAME ALREADY_PENDING");
@@ -29,7 +29,7 @@ public class FlowTest extends Rig
         check("room moved down: the selection follows it", selected("gameTable") == 2, "" + selected("gameTable"));
         server("GAME_LIST 2 3 roomA Bob 5 roomZ Zed");
         check("room gone: nothing selected", selected("gameTable") == -1, "" + selected("gameTable"));
-        lobbyButton("Join Selected");
+        lobbyButton("Join Room");
         check("room gone: Join sends nothing", sent().isEmpty());
 
         // A room of ours that waits, in My Games: Delete stays enabled across
@@ -58,12 +58,12 @@ public class FlowTest extends Rig
         // accepted: it must not be lost with the box.
 
         server("JOIN_NOTIFY 7 Dave");
-        check("Dave's request", shown() && message().equals("Dave wants to join your game. Accept?"), box());
+        check("Dave's request", shown() && message().equals("Dave wants to join your room. Accept?"), box());
         server("GAME_START 4 2 Carl");
         server("GAME_STATE 4 1 " + EMPTY_BOARD);
         check("the game is on screen, the request put away", !shown(), box());
         gameButton("Home");
-        check("back in the lobby: Dave's request again", shown() && message().equals("Dave wants to join your game. Accept?"), box());
+        check("back in the lobby: Dave's request again", shown() && message().equals("Dave wants to join your room. Accept?"), box());
         sent();
         click("Accept");
         check("the answer reaches the server", sent().contains("JOIN_RESPONSE 7 1"));
@@ -97,18 +97,18 @@ public class FlowTest extends Rig
         check("rematch: the new game takes moves", sent().equals(List.of("MOVE 11 0")));
 
         // ---- A double click on Rematch: the box changes under the mouse,
-        // and the second click must not hit "Leave room".
+        // and the second click must not hit "Leave Room".
 
         server("GAME_STATE 11 0 " + EMPTY_BOARD);
         server("GAME_OVER 11 LOSE");
         sent();
         click("Rematch");
         check("double click: the vote is sent", sent().equals(List.of("REMATCH 11")));
-        clickNow("Leave room");
+        clickNow("Leave Room");
         check("double click: the second click is ignored", sent().isEmpty()
               && message().equals("Waiting for the opponent's decision..."), box());
         Thread.sleep(OverlayPanel.CLICK_GUARD_MILLIS + 50);
-        clickNow("Leave room");
+        clickNow("Leave Room");
         check("a moment later the button works", sent().contains("LEAVE_GAME 11"));
 
         // A box that pops up under a click ignores it too.
@@ -119,15 +119,15 @@ public class FlowTest extends Rig
         sent();
 
         // ---- The opponent leaves the game on screen: the room is ours and
-        // waits for players again. Home keeps it, Leave room deletes it.
+        // waits for players again. Home keeps it, Leave Room deletes it.
 
         server("GAME_START 13 1 Ivy");
         server("GAME_STATE 13 1 " + EMPTY_BOARD);
         server("OPPONENT_LEFT 13");
         check("opponent left: two choices", shown() && message().equals(
-              "Your opponent left the room, you'll be redirected to the home screen. Delete the room?"), box());
+              "Your opponent left. Keep the room open for a new opponent?"), box());
         sent();
-        click("No, keep it");
+        click("Keep Room");
         List<String> home = sent();
         check("keep it: the room is kept", !home.contains("LEAVE_GAME 13") && !shown(), home + " / " + box());
         check("keep it: back in the lobby", home.contains("SET_ACTIVE_GAME 0") && home.contains("LIST_MY_GAMES"), home.toString());
@@ -138,7 +138,7 @@ public class FlowTest extends Rig
         check("a new opponent in the room: a tab with the new name",
               tabTitles().contains("VS Jay") && !tabTitles().contains("VS Ivy"), tabTitles().toString());
         server("OPPONENT_LEFT 13");
-        click("Yes, delete it");
+        click("Delete Room");
         check("delete it: the room is deleted", sent().contains("LEAVE_GAME 13"));
         check("delete it: back in the lobby", !shown(), box());
         check("delete it: the tab is gone", !tabTitles().contains("VS Jay"), tabTitles().toString());
@@ -193,7 +193,7 @@ public class FlowTest extends Rig
         check("two requests during a game: no box, the bell counts them", !shown() && bell().equals("2"), box() + " / " + bell());
         sent();
         clickBell();
-        check("bell: the first request, over the board", shown() && message().equals("Olga wants to join your game. Accept?"), box());
+        check("bell: the first request, over the board", shown() && message().equals("Olga wants to join your room. Accept?"), box());
         check("bell: one left", bell().equals("1"), bell());
         click("Accept");
         check("bell: the answer reaches the server", sent().contains("JOIN_RESPONSE 30 1"));

@@ -11,8 +11,6 @@ import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import com.lso.controller.GameController;
 import com.lso.controller.JoinController;
 import com.lso.controller.LobbyController;
@@ -44,6 +42,7 @@ public class LobbyPanel extends JPanel
     {
         setLayout(new BorderLayout(0, 20));
         setOpaque(false);
+        setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
 
         // Three equal columns keep the title exactly centred whatever the
         // width of the username on the right.
@@ -51,22 +50,25 @@ public class LobbyPanel extends JPanel
         usernameLabel.setIcon(UiUtil.personIcon(28, UiUtil.ACCENT));
         usernameLabel.setIconTextGap(10);
         usernameLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-        usernameLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 20));
 
         JPanel header = new JPanel(new GridLayout(1, 3));
         header.setOpaque(false);
         header.add(Box.createHorizontalGlue());
-        header.add(UiUtil.createStyledLabel("Available Games"));
+        header.add(UiUtil.createStyledLabel("Open Rooms"));
         header.add(usernameLabel);
 
         add(header, BorderLayout.NORTH);
 
-        gameTable = new UiUtil.TransparentTable("Game ID", "Name", "Owner");
+        gameTable = new UiUtil.TransparentTable("No rooms to join yet: create one and wait for an opponent",
+                                                "Game ID", "Name", "Owner");
+        gameTable.onDoubleClick(this::joinSelected);
 
         // The games we are playing, under the rooms to join. Selecting a row in
         // one table deselects the other, so the buttons below always refer to
         // the one the player is looking at.
-        myGamesTable = new UiUtil.TransparentTable("Game ID", "Name", "Opponent", "Status", "Opponent is");
+        myGamesTable = new UiUtil.TransparentTable("No games yet: join a room above or create one",
+                                                   "Game ID", "Name", "Opponent", "Status", "Opponent is");
+        myGamesTable.onDoubleClick(this::resumeSelected);
         myGamesTable.setDefaultRenderer(Object.class, new MyGamesRenderer());
 
         // The columns are kept across updates (see setRows), so the widths
@@ -91,23 +93,14 @@ public class LobbyPanel extends JPanel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 0));
         buttonPanel.setOpaque(false);
 
-        JButton joinBtn = UiUtil.createStyledButton("Join Selected");
-        joinBtn.addActionListener(e ->
-        {
-            int row = gameTable.getSelectedRow();
-            if(row != -1)
-            {
-                int gameId = Integer.parseInt(gameTable.getCellValue(row, 0).toString());
-                String roomName = gameTable.getCellValue(row, 1).toString();
-                String owner = gameTable.getCellValue(row, 2).toString();
-                joins.join(gameId, roomName, owner);
-            }
-        });
+        JButton joinBtn = UiUtil.createStyledButton("Join Room");
+        joinBtn.setEnabled(false);
+        joinBtn.addActionListener(e -> joinSelected());
 
-        JButton createBtn = UiUtil.createStyledButton("Create Game");
+        JButton createBtn = UiUtil.createStyledButton("Create Room");
         createBtn.addActionListener(e -> lobby.askRoomName());
 
-        // Our rooms are not in Available Games (the server leaves them out), so
+        // Our rooms are not in Open Rooms (the server leaves them out), so
         // the room to delete is the one selected in My Games.
         deleteBtn = UiUtil.createStyledButton("Delete Room");
         deleteBtn.setEnabled(false);
@@ -127,6 +120,7 @@ public class LobbyPanel extends JPanel
             {
                 myGamesTable.clearSelection();
             }
+            joinBtn.setEnabled(gameTable.getSelectedRow() != -1);
         });
 
         resumeBtn = UiUtil.createStyledButton("Resume");
@@ -140,17 +134,6 @@ public class LobbyPanel extends JPanel
             }
             updateResumeButton();
             updateDeleteButton();
-        });
-        myGamesTable.addMouseListener(new MouseAdapter()
-        {
-            @Override
-            public void mouseClicked(MouseEvent e)
-            {
-                if(e.getClickCount() == 2 && myGamesTable.rowAtPoint(e.getPoint()) != -1)
-                {
-                    resumeSelected();
-                }
-            }
         });
 
         buttonPanel.add(joinBtn);
@@ -205,6 +188,18 @@ public class LobbyPanel extends JPanel
     public void updateMyGames(Object[][] rows)
     {
         myGamesTable.setRows(rows);
+    }
+
+    private void joinSelected()
+    {
+        int row = gameTable.getSelectedRow();
+        if(row != -1)
+        {
+            int gameId = Integer.parseInt(gameTable.getCellValue(row, 0).toString());
+            String roomName = gameTable.getCellValue(row, 1).toString();
+            String owner = gameTable.getCellValue(row, 2).toString();
+            joins.join(gameId, roomName, owner);
+        }
     }
 
     private void resumeSelected()

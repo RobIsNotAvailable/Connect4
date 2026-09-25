@@ -6,8 +6,13 @@ import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Insets;
+import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.Map;
 
 import javax.swing.AbstractAction;
@@ -107,7 +112,7 @@ public class UiUtil
     public static JButton createStyledButton(String text)
     {
         JButton button = new JButton(text);
-        button.setFont(new Font("Arial", Font.BOLD, 18));
+        button.setFont(button.getFont().deriveFont(Font.BOLD, 18f));
         button.setForeground(Color.WHITE);
 
         // No box around it: FlatLaf paints only a background under the mouse
@@ -127,7 +132,7 @@ public class UiUtil
         JLabel label = new JLabel(text, SwingConstants.CENTER);
 
         label.setForeground(Color.WHITE);
-        label.setFont(new Font("Arial", Font.BOLD, 20));
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 20f));
 
         return label;
     }
@@ -158,11 +163,14 @@ public class UiUtil
     // holds the id, which the code reads but the player does not see.
     public static class TransparentTable extends JTable
     {
+        private final String emptyText;
         private final String[] columnNames;
 
-        public TransparentTable(String... columnNames)
+        // 'emptyText' is written in the middle when there are no rows.
+        public TransparentTable(String emptyText, String... columnNames)
         {
             super(new Object[0][columnNames.length], columnNames);
+            this.emptyText = emptyText;
             this.columnNames = columnNames;
 
             setFillsViewportHeight(true);
@@ -190,6 +198,37 @@ public class UiUtil
             DefaultTableCellRenderer cells = new DefaultTableCellRenderer();
             cells.setHorizontalAlignment(SwingConstants.CENTER);
             setDefaultRenderer(Object.class, cells);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g)
+        {
+            super.paintComponent(g);
+            if(getRowCount() == 0)
+            {
+                Graphics2D g2d = (Graphics2D) g;
+                g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g2d.setColor(UIManager.getColor("Label.disabledForeground"));
+                g2d.setFont(getFont().deriveFont(16f));
+                int width = g2d.getFontMetrics().stringWidth(emptyText);
+                g2d.drawString(emptyText, (getWidth() - width) / 2, getHeight() / 2);
+            }
+        }
+
+        // 'action' on a double click on a row, which the first click selected.
+        public void onDoubleClick(Runnable action)
+        {
+            addMouseListener(new MouseAdapter()
+            {
+                @Override
+                public void mouseClicked(MouseEvent e)
+                {
+                    if(e.getClickCount() == 2 && rowAtPoint(e.getPoint()) != -1)
+                    {
+                        action.run();
+                    }
+                }
+            });
         }
 
         // The rows only display what the server sent: a double click must
