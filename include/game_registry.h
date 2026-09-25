@@ -6,16 +6,15 @@
 
 // The games on the server. Not thread-safe by itself: every function must be
 // called with the server's command_mutex held (server.c). The functions that
-// check a request return ERR_NONE or the error code to send back
-// (docs/protocol.md §1.5); on success they copy the game, as it is after the
-// change, into 'out_game'.
+// check a request return ERR_NONE or the error code to send back; on success
+// they copy the game, as it is after the change, into 'out_game'.
 
 // Registry capacity: how many games can exist at once. Exposed here so a
 // caller can size a buffer to match, e.g. the LeaveEvent array below: one
 // disconnecting client can affect at most one game per occupied slot.
 #define MAX_GAMES 256
 
-// How many games a single client can be in at once (docs/protocol.md §5.1): the
+// How many games a single client can be in at once: the
 // ones it is a player of, in any state - a room waiting for an opponent counts,
 // and a finished game keeps its place until the player leaves it. It also
 // bounds the reply to LIST_MY_GAMES, so that always fits in a line.
@@ -48,7 +47,7 @@ typedef struct
     Board board;
     int turn;   // 1 or 2: who moves next. 0 when the game is not being played
     int winner; // valid only once state == GAME_FINISHED: 1, 2, or 0 for a draw
-    // Rematch votes (docs/protocol.md §7): meaningful only while
+    // Rematch votes (REMATCH): meaningful only while
     // state == GAME_FINISHED. Both are cleared whenever a game starts, so a
     // vote never outlives the game it was cast for.
     int owner_wants_rematch;
@@ -56,9 +55,8 @@ typedef struct
 } Game;
 
 // What happened to one game because a client left it, and which
-// notification(s) the caller needs to send because of it (docs/protocol.md
-// §8). The client that left is not repeated here: the caller already knows
-// who it is.
+// notification(s) the caller needs to send because of it. The client that
+// left is not repeated here: the caller already knows who it is.
 //
 // A room outlives the players in it: when one of two players leaves, the
 // other stays and the game goes back to WAITING with a fresh board (if the
@@ -125,7 +123,7 @@ ErrorCode game_registry_set_pending(int game_id, int joiner_sock, Game *out_game
 // asking: the request is cancelled, and 'out_game' is filled as on success).
 ErrorCode game_registry_resolve_join(int game_id, int owner_sock, int accepted, Game *out_game);
 
-// One MOVE (docs/protocol.md §5): drops the disc of 'player_sock' into
+// One MOVE: drops the disc of 'player_sock' into
 // 'column', then the game is won, drawn or goes on with the other player.
 // 'is_active' says whether the game is the sender's active game, which only
 // the caller knows (it lives in the client registry). Errors, in this order:
@@ -137,14 +135,14 @@ ErrorCode game_registry_apply_move(int game_id, int player_sock, int column, int
 RoomState game_registry_state(int game_id);
 
 // Checks that 'sock' may make game 'game_id' its active game
-// (docs/protocol.md §5.3). A FINISHED game is fine: the players are still on
+// (SET_ACTIVE_GAME). A FINISHED game is fine: the players are still on
 // it, deciding about the rematch. Errors: NOT_FOUND, NOT_PLAYER, NOT_PLAYING
 // (the game waits for an opponent).
 ErrorCode game_registry_check_activate(int game_id, int sock);
 
-// 'sock' votes for a rematch of the FINISHED game 'game_id' (docs/protocol.md
-// §7). When both players have voted the game restarts in place: 'out_game' is
-// PLAYING then, and still FINISHED while the opponent's vote is missing.
+// 'sock' votes for a rematch of the FINISHED game 'game_id'. When both players
+// have voted the game restarts in place: 'out_game' is PLAYING then, and still
+// FINISHED while the opponent's vote is missing.
 // Errors: NOT_FOUND, NOT_PLAYER, NOT_FINISHED, ALREADY_PENDING (already voted).
 ErrorCode game_registry_rematch(int game_id, int sock, Game *out_game);
 

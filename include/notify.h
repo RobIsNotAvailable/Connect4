@@ -5,7 +5,7 @@
 
 // What the server tells the players on its own: a game starting, its board,
 // its end, what happens when someone leaves, and whether the opponent is
-// looking at the game (the active game, docs/protocol.md §5.3). Called with
+// looking at the game (its active game, SET_ACTIVE_GAME). Called with
 // the server's command_mutex held, like everything that touches the registries.
 
 // GAME_START to both players of 'g' (their number and the opponent's name),
@@ -20,7 +20,7 @@ void send_game_state(const Game *g);
 void send_game_over(const Game *g);
 
 // The notifications for what the registry did because 'leaver_sock' left
-// some games (docs/protocol.md §6 and §8), by LEAVE_GAME or by disconnecting.
+// some games, by LEAVE_GAME or by disconnecting.
 void notify_leave_events(int leaver_sock, const LeaveEvent *events, int n);
 
 // Changes the active game of 'sock' (0 = none) and tells the opponents who

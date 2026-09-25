@@ -50,9 +50,8 @@ void dispatch_command(int sock, Client *me, char *line)
     const char *name = argv[0];
     printf("[SERVER] [%s] Received command: %s\n", log_name(me), name);
 
-    // Until a username is chosen, SET_USERNAME is the only command accepted
-    // (docs/protocol.md §2), so every name a game or a notification shows is
-    // already final.
+    // Until a username is chosen, SET_USERNAME is the only command accepted,
+    // so every name a game or a notification shows is already final.
     if (me->username[0] == '\0' && strcmp(name, "SET_USERNAME") != 0)
     {
         send_error(sock, me, name, ERR_NO_USERNAME);
@@ -197,7 +196,7 @@ static void handle_join_game(int sock, Client *me, char *argv[])
         return;
     }
 
-    // Only the owner is told (docs/protocol.md §4). The joiner gets its
+    // Only the owner is told. The joiner gets its
     // answer, JOIN_RESULT, once the owner decides.
     client_send_line(g.owner_sock, "JOIN_NOTIFY %d %s", game_id, me->username);
 }
@@ -208,7 +207,7 @@ static void handle_join_response(int sock, Client *me, char *argv[])
     Game g;
     ErrorCode err = ERR_BAD_ARGS;
 
-    // <accepted> is 0 or 1, nothing else counts as "yes" (docs/protocol.md §4).
+    // <accepted> is 0 or 1: nothing else counts as "yes".
     if (parse_int(argv[1], &game_id) && parse_int(argv[2], &accepted) && (accepted == 0 || accepted == 1))
     {
         err = game_registry_resolve_join(game_id, sock, accepted, &g);
@@ -242,7 +241,7 @@ static void handle_move(int sock, Client *me, char *argv[])
     if (parse_int(argv[1], &game_id) && parse_int(argv[2], &column))
     {
         // The active game lives in the client registry, so it is looked up
-        // here and handed to the game registry (docs/protocol.md §5.3).
+        // here and handed to the game registry.
         int is_active = (client_list_get_active_game(sock) == game_id);
         err = game_registry_apply_move(game_id, sock, column, is_active, &g);
     }
@@ -256,8 +255,8 @@ static void handle_move(int sock, Client *me, char *argv[])
     if (g.state == GAME_FINISHED)
     {
         send_game_over(&g);
-        // The other clients only ever saw this game as GAME_IN_PROGRESS
-        // (docs/protocol.md §6): now that it is over, it leaves their lists.
+        // The other clients only ever saw this game as GAME_IN_PROGRESS: now
+        // that it is over, it leaves their lists.
         client_broadcast_except(g.owner_sock, g.player2_sock, "GAME_CLOSED %d", g.id);
     }
 }
@@ -282,7 +281,7 @@ static void handle_set_active_game(int sock, Client *me, char *argv[])
     set_active_game(sock, game_id);
 }
 
-// The sender leaves a game it is a player of (docs/protocol.md §7), with the
+// The sender leaves a game it is a player of, with the
 // same rules as a disconnect. It gets GAME_LEFT first and then, like everyone
 // else, what the others are told about the game it left.
 static void handle_leave_game(int sock, Client *me, char *argv[])
@@ -302,7 +301,7 @@ static void handle_leave_game(int sock, Client *me, char *argv[])
     notify_leave_events(sock, &event, 1);
 }
 
-// A vote for a rematch (docs/protocol.md §7). The first vote only tells the
+// A vote for a rematch. The first vote only tells the
 // opponent; the second starts the game again, as an accepted join does. The
 // other clients hear nothing: they were told GAME_CLOSED when the game ended.
 static void handle_rematch(int sock, Client *me, char *argv[])
@@ -328,7 +327,7 @@ static void handle_rematch(int sock, Client *me, char *argv[])
     }
 }
 
-// "ERROR <command> <code>" (docs/protocol.md §1.5) to the sender, and a line
+// "ERROR <command> <code>" to the sender, and a line
 // in the log. The command is echoed as sent, cut to a length that always fits
 // in a line.
 static void send_error(int sock, const Client *me, const char *command, ErrorCode err)
@@ -337,7 +336,7 @@ static void send_error(int sock, const Client *me, const char *command, ErrorCod
     client_send_line(sock, "ERROR %.31s %s", command, error_name(err));
 }
 
-// The state's name as it appears on the wire (docs/protocol.md §3).
+// The state's name as it appears on the wire (MY_GAME_LIST).
 static const char *room_state_name(RoomState s)
 {
     switch (s)

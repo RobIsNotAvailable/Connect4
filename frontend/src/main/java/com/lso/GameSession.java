@@ -2,12 +2,11 @@ package com.lso;
 
 // Everything the client knows about one game it plays: who the players are,
 // the board, whose turn it is and how it ended. The controller keeps one per
-// game in progress. A player can be in several at once (docs/protocol.md
-// §5.1), and each message of the server reaches the game it names, whichever
-// one is on screen.
+// game in progress. A player can be in several at once, and each message of
+// the server reaches the game it names, whichever one is on screen.
 public class GameSession
 {
-    // The board of docs/protocol.md §5.2: ROWS * COLUMNS characters, top row
+    // The board of GAME_STATE: ROWS * COLUMNS characters, top row
     // first, '.' for an empty cell and '1' / '2' for the discs.
     public static final int ROWS = 6;
     public static final int COLUMNS = 7;

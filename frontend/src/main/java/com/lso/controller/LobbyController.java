@@ -208,7 +208,7 @@ public class LobbyController
     }
 
     // The creator leaving a waiting room alone is how a room is deleted
-    // (docs/protocol.md §7). The others are told with GAME_CLOSED but the
+    // (LEAVE_GAME). The others are told with GAME_CLOSED but the
     // sender only gets GAME_LEFT, so the list is asked again.
     public void askDeleteRoom(String gameId, String roomName)
     {

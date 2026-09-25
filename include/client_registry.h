@@ -10,11 +10,11 @@
 // function must be called with the server's command_mutex held (server.c).
 
 // Bookkeeping for a single connected client: identity + its socket. The
-// username is empty ("") until the client picks one with SET_USERNAME
-// (docs/protocol.md §2), and never changes after that.
+// username is empty ("") until the client picks one with SET_USERNAME, and
+// never changes after that.
 //
-// active_game is the game the client is playing right now (docs/protocol.md
-// §5.3): 0 when it has none. A client can be in several games, but MOVE is only
+// active_game is the game the client is playing right now (SET_ACTIVE_GAME):
+// 0 when it has none. A client can be in several games, but MOVE is only
 // accepted in the active one.
 typedef struct
 {
@@ -45,8 +45,9 @@ int client_send_line(int sock, const char *fmt, ...) __attribute__((format(print
 
 // Sends one protocol line to every currently connected client except up
 // to two sockets (pass -1 for either/both to exclude no one). Used for
-// the docs/protocol.md notifications, which never reach the game's
-// own owner/player2. Best-effort per recipient, like client_send_line.
+// the notifications about a game: NEW_GAME and GAME_CLOSED leave out its
+// own players, GAME_IN_PROGRESS reaches everyone. Best-effort per
+// recipient, like client_send_line.
 void client_broadcast_except(int except_sock1, int except_sock2, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 
 // The active game of the client connected on 'sock', or 0 if it has none

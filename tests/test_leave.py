@@ -1,4 +1,4 @@
-"""LEAVE_GAME / GAME_LEFT (docs/protocol.md §7): what the sender, the player left
+"""LEAVE_GAME / GAME_LEFT: what the sender, the player left
 behind and everyone else hear in each case. A disconnect runs the same rules,
 see test_disconnect.py."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, drain, finish, play_win, start_game as start
@@ -97,7 +97,7 @@ with Server() as srv:
     check("room WAITING", c.ask("LIST_MY_GAMES", "MY_GAME_LIST"), f"MY_GAME_LIST 1 {r} Sfida - 1 WAITING 0 HERE")
     drain(a, b, c, d)
 
-    # 8. a client in a game can ask for another room (§5.1), before or after leaving
+    # 8. a client in a game can ask for another room, before or after leaving
     x = d.ask("CREATE_GAME Altra", "GAME_CREATED").split()[1]
     start(c, b, r)
     drain(a, b, c, d)
@@ -116,7 +116,7 @@ with Server() as srv:
 
     # 9. the creator leaves while the second player is at the limit of 5 (4
     # rooms of her own and this game): the room passes to her all the same,
-    # since it already counted for her (§8)
+    # since it already counted for her
     e, f = srv.client("Elisa"), srv.client("Fabio")
     ys = [e.ask(f"CREATE_GAME Y{i}", "GAME_CREATED").split()[1] for i in range(4)]
     z = f.ask("CREATE_GAME Zeta", "GAME_CREATED").split()[1]

@@ -24,8 +24,8 @@ public class GameTabs extends JTabbedPane
         this.ends = ends;
     }
 
-    // Shows 'session' in the tab of its game, or in a new tab. A rematch, or a
-    // new opponent in a room of ours, keeps the tab of the game.
+    // Shows 'session' in the tab of its game, or in a new tab. A rematch keeps
+    // the tab of the game.
     public void showGame(GameSession session)
     {
         String title = "VS " + session.getOpponent();

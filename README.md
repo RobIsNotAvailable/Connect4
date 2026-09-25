@@ -7,8 +7,7 @@ Progetto di Laboratorio di Sistemi Operativi: Forza 4.
 
 - **Client** in Java Swing: lobby con le stanze, partite in schede, notifiche.
 
-- I due parlano con un protocollo a righe di testo, descritto in
-  [`docs/protocol.md`](docs/protocol.md).
+- I due parlano con un protocollo a righe di testo su TCP.
 
 ## Avvio con Docker Compose
 

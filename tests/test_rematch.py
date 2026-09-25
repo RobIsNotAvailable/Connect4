@@ -1,4 +1,4 @@
-"""REMATCH / REMATCH_NOTIFY (docs/protocol.md §7): the two-player vote."""
+"""REMATCH / REMATCH_NOTIFY : the two-player vote."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, finish, play_win, start_game as start
 
 with Server() as srv:

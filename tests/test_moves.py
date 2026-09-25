@@ -1,4 +1,4 @@
-"""MOVE, GAME_STATE and GAME_OVER (docs/protocol.md §5): turns, errors, every
+"""MOVE, GAME_STATE and GAME_OVER: turns, errors, every
 way of winning, the draw.
 
 The boards the server should send are never written by hand: c4model.replay()
@@ -126,7 +126,7 @@ with Server() as srv:
 
     # ------------------------------------------------ two games at once do not mix
     a2, b2, room2 = new_game(srv, 2)
-    check("the first game's players hear of the new room, like everyone else (§6)", (a.take_all(), b.take_all()),
+    check("the first game's players hear of the new room, like everyone else", (a.take_all(), b.take_all()),
           ([f"NEW_GAME {room2} Room A2", f"GAME_IN_PROGRESS {room2}"],) * 2)
     a2.send(f"MOVE {room2} 3")
     one_disc = replay([3])[-1][0]

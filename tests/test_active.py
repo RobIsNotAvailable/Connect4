@@ -1,4 +1,4 @@
-"""SET_ACTIVE_GAME and NOT_ACTIVE (docs/protocol.md §5.3): a client can be in
+"""SET_ACTIVE_GAME and NOT_ACTIVE: a client can be in
 several games but plays actively one at a time."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, drain, finish, new_room, play_win, start_game
 
@@ -152,7 +152,7 @@ with Server() as srv:
           f"GAME_STATE {y} 2 {BOARD_1_COL0}")
 
 
-# Same, when the owner leaves and the room passes to the other player (§8): it is no longer played, so it
+# Same, when the owner leaves and the room passes to the other player: it is no longer played, so it
 # stops being her active game; then she deletes it and its id goes to someone else's game.
 with Server() as srv:
     e, f, g, h, i = (srv.client(n) for n in ("Elisa", "Fabio", "Gino", "Hugo", "Ilaria"))

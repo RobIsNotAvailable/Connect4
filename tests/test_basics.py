@@ -1,4 +1,4 @@
-"""The rules of docs/protocol.md §1: how lines are framed and what happens to
+"""The general rules of the protocol: how lines are framed and what happens to
 a line the server does not understand."""
 import re
 
@@ -24,7 +24,7 @@ with Server() as srv:
     check("three lines in one send get three answers", a.take_all(),
           ["GAME_LIST 0", "GAME_LIST 0", "ERROR - UNKNOWN_COMMAND"])
 
-    # numbers (§1.3): decimal integers, no '+', no leading zeros, and they must fit
+    # numbers: decimal integers, no '+', no leading zeros, and they must fit
     # in an int. JOIN_GAME tells them apart: a number is a room that does not exist
     # (NOT_FOUND), anything else is BAD_ARGS.
     for n in ("0", "1", "-1", "255", "2147483647", "-2147483648"):

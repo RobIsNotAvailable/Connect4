@@ -125,8 +125,8 @@ public class MainController
 
             // A room left the list of the ones to join, because it was deleted
             // or its game ended. It is never about a game of ours: a room is
-            // deleted only when its last player leaves it (docs/protocol.md
-            // §8), and the players of a game that ends are told with GAME_OVER.
+            // deleted only when its last player leaves it, and the players of a
+            // game that ends are told with GAME_OVER.
             case "GAME_CLOSED":
                 joins.onRoomClosed(Integer.parseInt(parts[1]));
                 connection.send("LIST_GAMES");

@@ -51,7 +51,7 @@ int vsend_line(int sock, const char *fmt, va_list args) __attribute__((format(pr
 // tokens were found (0 for a blank line).
 int split_args(char *line, char *argv[], int max_args);
 
-// Parses 's' as a base-10 integer written the way docs/protocol.md §1.3 says
+// Parses 's' as a base-10 integer written the way the protocol wants it
 // (optional '-', no '+', no leading zeros) with nothing left over: unlike
 // plain strtol/atoi, rejects "", " ", "12abc", "+3" and "03" instead of
 // silently accepting them. Returns 1 and fills 'out' on success, 0 otherwise. Used to turn
@@ -59,7 +59,7 @@ int split_args(char *line, char *argv[], int max_args);
 // instead of silently treating garbage as 0.
 int parse_int(const char *s, int *out);
 
-// Checks 's' is a legal name token (docs/protocol.md §1.2): between 1 and
+// Checks 's' is a legal name token: between 1 and
 // 'max_len' characters, each a printable ASCII character other than the
 // space (0x21-0x7E). Returns 1 if valid, 0 otherwise. Meant for text the
 // client picks (room names and usernames), so the caller can reject it

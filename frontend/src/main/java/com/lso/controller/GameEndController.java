@@ -111,10 +111,10 @@ public class GameEndController
     // The room survives the end of the game, so the player has to choose:
     // vote for a rematch (it starts only if the opponent votes too) or leave
     // the room. After voting the same box says the player is waiting: it is
-    // closed by the GAME_START of the rematch; a vote can't be withdrawn, so
-    // leaving stays the only way out. The box is drawn from what the session
-    // knows, so it comes out the same whenever it is drawn again (the opponent
-    // votes first, or the player comes back to the game later).
+    // closed by the GAME_START of the rematch. A vote can't be withdrawn: Home
+    // puts the game aside, Leave Room gives it up. The box is drawn from what
+    // the session knows, so it comes out the same whenever it is drawn again
+    // (the opponent votes first, or the player comes back to the game later).
     void showGameOver(GameSession session)
     {
         int id = session.getId();

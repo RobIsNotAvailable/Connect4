@@ -180,8 +180,8 @@ int parse_int(const char *s, int *out)
         return 0;
     }
 
-    // docs/protocol.md §1.3: an optional '-', then digits with no leading
-    // zero. strtol alone would also take "+3", "03", "-0" and leading spaces.
+    // An optional '-', then digits with no leading zero: strtol alone would
+    // also take "+3", "03", "-0" and leading spaces.
     const char *digits = (*s == '-') ? s + 1 : s;
     if (*digits < '0' || *digits > '9')
     {

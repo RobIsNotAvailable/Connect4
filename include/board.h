@@ -1,7 +1,7 @@
 #ifndef BOARD_H
 #define BOARD_H
 
-// Board dimensions (docs/protocol.md §5.2): 6 rows, 7 columns.
+// Board dimensions: 6 rows, 7 columns.
 #define BOARD_ROWS 6
 #define BOARD_COLS 7
 
@@ -12,7 +12,7 @@
 // cell isn't empty, its wire character is just '0' + the cell's value
 // (see board_to_string). Must keep
 // PLAYER_NONE == 0: board_init relies on a zeroed struct meaning "all
-// empty", same trick as GAME_EMPTY in protocol.h.
+// empty", same trick as GAME_EMPTY in game_registry.h.
 typedef enum
 {
     PLAYER_NONE = 0,
@@ -21,8 +21,8 @@ typedef enum
 } CellPlayer;
 
 // A Connect4 grid. Pure game state - no socket, no thread-safety: a board
-// lives inside its Game and is only touched under the game registry's
-// lock, so nothing here needs one of its own.
+// lives inside its Game and is only touched with the server's
+// command_mutex held, so nothing here needs a lock of its own.
 typedef struct
 {
     CellPlayer cells[BOARD_ROWS][BOARD_COLS];
@@ -41,7 +41,7 @@ void board_init(Board *board);
 
 // Drops a disc for 'player' into 'column' (0-indexed): it falls to the
 // lowest empty row, like gravity. On DROP_OK, fills 'out_row' with the
-// row it landed on (row 0 is the top, per docs/protocol.md §5.2) - the
+// row it landed on (row 0 is the top, as in board_to_string) - the
 // caller will need it to check for a win starting from that cell.
 // Rejects an out-of-range column or a full one without touching the
 // board.
@@ -59,7 +59,7 @@ int board_check_win(const Board *board, int row, int col);
 // move is a win, not a draw.
 int board_is_full(const Board *board);
 
-// Writes the board as the 42-character token of docs/protocol.md §5.2
+// Writes the board as the 42-character token of GAME_STATE
 // into 'out' (top row first, each row left to right) - '.' for
 // PLAYER_NONE, otherwise the digit '1'/'2' matching the cell's own
 // value (PLAYER_1 == 1, PLAYER_2 == 2 - see the enum above). 'out' must

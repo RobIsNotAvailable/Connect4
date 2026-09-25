@@ -72,7 +72,6 @@ int main()
         return -1;
     }
 
-    //controllare
     // Problem: the default action of SIGTERM (what `docker stop` sends) and
     // SIGINT (Ctrl-C) is to kill the process, but the first process of a
     // container (PID 1) is special: the kernel ignores the signals it has no
@@ -122,7 +121,6 @@ int main()
     return 0;
 }
 
-//controllare
 // SIGTERM / SIGINT: the server stops at once. Why not set a flag and let the
 // accept() loop in main() notice it? The process has many threads and the
 // signal may be delivered to any of them, so main()'s accept() is not sure to

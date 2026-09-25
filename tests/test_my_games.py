@@ -1,4 +1,4 @@
-"""LIST_MY_GAMES / MY_GAME_LIST (docs/protocol.md §3): every room and game the
+"""LIST_MY_GAMES / MY_GAME_LIST: every room and game the
 client is a player of, the ones that still wait for an opponent included."""
 import time
 

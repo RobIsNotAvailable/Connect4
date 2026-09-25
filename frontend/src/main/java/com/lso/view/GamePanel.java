@@ -99,10 +99,10 @@ public class GamePanel extends JPanel
         header.add(middle);
         header.add(player2Label);
 
-        // Under the bar: it says when the opponent is not in this game (he went
-        // to the lobby, or to another game), so the player knows why nothing
-        // happens. It is always there, blank when there is nothing to say, so
-        // the board does not change size when it appears.
+        // Under the bar: it says when the opponent is not in this game (they
+        // went to the lobby, or to another game), so the player knows why
+        // nothing happens. It is always there, blank when there is nothing to
+        // say, so the board does not change size when it appears.
         awayLabel = UiUtil.createStripLabel(UiUtil.ACCENT, UiUtil.BACKGROUND_BLACK);
 
         // Between the two: whose turn it is, in words.
@@ -218,8 +218,9 @@ public class GamePanel extends JPanel
 
     // The player on turn is at full brightness and the other one is dimmed,
     // and the line under the bar says it: in the accent when it is our turn,
-    // as "Your turn" in the lobby. The column buttons work only where we can play. When the
-    // game is over (turn 0) both players are back to normal, the line blank.
+    // as "Your turn" in the lobby. The column buttons work only where we can
+    // play. When the game is over (turn 0) both players are back to normal,
+    // the line blank.
     private void showTurn(int turn)
     {
         styleBadge(player1Label, UiUtil.playerColor(1), turn != 2);

@@ -13,7 +13,7 @@ ROWS, COLS = 6, 7
 def replay(columns):
     """Plays 'columns' one after the other, player 1 first. Returns a list with
     one (board, winner) pair per move: 'board' is the 42-character string of
-    docs/protocol.md §5.2 after that move, 'winner' is 1, 2 or None."""
+    GAME_STATE after that move, 'winner' is 1, 2 or None."""
     grid = [["."] * COLS for _ in range(ROWS)]
     out = []
     for i, col in enumerate(columns):

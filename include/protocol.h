@@ -1,27 +1,25 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
 
-// The constants of the text protocol (docs/protocol.md).
+// The constants of the text protocol between the server and its clients.
 
 #define PORT 8080
 
-// Buffer size for a username: 20 characters + '\0', the same limit
-// docs/protocol.md §1.2 states for every name chosen by a client.
+// Buffer size for a username: 20 characters + '\0', the limit of every name
+// chosen by a client (see is_valid_name in net.h).
 #define USERNAME_LEN 21
 
-// Buffer size for a game's name: 20 characters + '\0'. The 20-character
-// limit is the one docs/protocol.md §1.2 states for names.
+// Buffer size for a game's name: 20 characters + '\0', as for a username.
 #define ROOM_NAME_LEN 21
 
-// Maximum length of one protocol line, '\n' included (see docs/protocol.md).
+// Maximum length of one protocol line, '\n' included.
 #define MAX_LINE 1024
 
-// At most this many rooms in a GAME_LIST (docs/protocol.md §3).
+// At most this many rooms in a GAME_LIST.
 #define MAX_GAMES_IN_LIST 32
 
-// The error codes of docs/protocol.md §1.5, in the order of its table.
-// ERR_NONE (0) means no error; error_name() (net.h) gives the word sent in
-// "ERROR <command> <code>".
+// The errors the server can answer with. ERR_NONE (0) means no error;
+// error_name() (net.h) gives the word sent in "ERROR <command> <code>".
 typedef enum
 {
     ERR_NONE,

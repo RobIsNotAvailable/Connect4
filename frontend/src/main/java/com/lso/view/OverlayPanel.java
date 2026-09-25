@@ -46,8 +46,9 @@ public class OverlayPanel extends JPanel
         setLayout(new GridBagLayout());
         setOpaque(false);
 
-        // The focus comes into the box when it opens (see open), so the keys
-        // can't reach the buttons behind it, and Tab goes round its own only.
+        // The focus comes into the box when it opens (see open), so Tab and
+        // Space can't reach the buttons behind it: Tab goes round its own only.
+        // The keys 1-7 are bound to the whole window (see GameController.move).
         setFocusCycleRoot(true);
 
         // A glass pane only intercepts the mouse if it listens to it,

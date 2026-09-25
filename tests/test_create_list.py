@@ -1,4 +1,4 @@
-"""CREATE_GAME, LIST_GAMES and NEW_GAME (docs/protocol.md §3, §6)."""
+"""CREATE_GAME, LIST_GAMES and NEW_GAME."""
 import re
 
 from harness import Server, check, finish
@@ -54,7 +54,7 @@ with Server() as srv:
     check("the same name twice is fine", a.take_all(), ["GAME_CREATED 3 Sfida_1"])
     b.take_all()
 
-    # at most 5 rooms and games per client (MAX_GAMES_PER_PLAYER, §5.1)
+    # at most 5 rooms and games per client (MAX_GAMES_PER_PLAYER)
     a.send("CREATE_GAME Quarta")
     a.send("CREATE_GAME Quinta")
     check("4th and 5th room", a.take_all(), ["GAME_CREATED 4 Quarta", "GAME_CREATED 5 Quinta"])

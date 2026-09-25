@@ -1,4 +1,4 @@
-"""WELCOME and SET_USERNAME (docs/protocol.md §2)."""
+"""WELCOME and SET_USERNAME."""
 import re
 import time
 

@@ -1,4 +1,5 @@
-"""Disconnections (docs/protocol.md §8): each row of the table, a room that
+"""Disconnections: a pending joiner, the owner of a waiting room, the second
+player or the owner of a game in progress or finished; a room that
 passes to a player at the limit of games, a client involved in several games
 at once. LEAVE_GAME runs the same rules on a single room, see test_leave.py."""
 import time

@@ -1,5 +1,5 @@
-"""JOIN_GAME, JOIN_NOTIFY, JOIN_RESPONSE, JOIN_RESULT (docs/protocol.md §4) and
-§5.1: a client can be in several games at once."""
+"""JOIN_GAME, JOIN_NOTIFY, JOIN_RESPONSE, JOIN_RESULT, and a client in several
+games at once."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, drain, finish, new_room, start_game
 
 
@@ -85,7 +85,7 @@ with Server() as srv:
           ([f"GAME_IN_PROGRESS {room}"],) * 2)
 
 
-# ---------------------------------------------------------------- a client can be in several games at once (§5.1)
+# ---------------------------------------------------------------- a client can be in several games at once
 BOARD_1_COL0 = "." * 35 + "1" + "." * 6  # player 1 dropped a disc in column 0
 BOARD_1_COL3 = "." * 38 + "1" + "." * 3  # player 1 dropped a disc in column 3
 

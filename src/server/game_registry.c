@@ -105,9 +105,8 @@ ErrorCode game_registry_leave(int game_id, int sock, LeaveEvent *event)
     return ERR_NONE;
 }
 
-// 'sock', the owner or player2 of 'g', leaves it - the rules of
-// docs/protocol.md §8, whatever the game's state. Fills 'event' with what the
-// caller has to notify.
+// 'sock', the owner or player2 of 'g', leaves it, whatever the game's state.
+// Fills 'event' with what the caller has to notify.
 //
 // Whoever is left in the game keeps it. If that is the owner, the game goes
 // back to WAITING with a fresh board. If the owner is the one who left, the

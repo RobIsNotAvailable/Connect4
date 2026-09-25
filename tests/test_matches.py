@@ -1,5 +1,5 @@
-"""OPPONENT_STATUS (docs/protocol.md §5.3) and the limit of MAX_GAMES_PER_PLAYER
-rooms and games at once (§5.1). The list of one's games is in test_my_games.py."""
+"""OPPONENT_STATUS and the limit of MAX_GAMES_PER_PLAYER rooms and games at
+once. The list of one's games is in test_my_games.py."""
 from harness import EMPTY_BOARD as EMPTY, Server, check, drain, finish, new_room, play_win, start_game
 
 MAX_GAMES = 5
