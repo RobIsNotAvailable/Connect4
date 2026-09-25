@@ -34,6 +34,7 @@ public class GameSession
     private final String opponent;
 
     private String board = EMPTY_BOARD;
+    private int lastMove = -1;  // where in 'board' the disc of the last move is, -1 if none
     private int turn = 1;       // 1 or 2, and 0 once the game is over
     private Result result;      // null until the game is over
     private boolean opponentAway; // the opponent is not in this game: in the lobby or in another (OPPONENT_STATUS)
@@ -99,8 +100,22 @@ public class GameSession
         return opponentWantsRematch;
     }
 
+    // The last move is the one cell that went from empty to a disc. A board
+    // that did not change keeps it; any other change has none.
     public void update(int turn, String board)
     {
+        int changed = -1;
+        for(int i = 0; i < board.length(); i++)
+        {
+            if(board.charAt(i) != this.board.charAt(i))
+            {
+                changed = (changed == -1) ? i : -2; // -2: more than one
+            }
+        }
+        if(changed != -1)
+        {
+            lastMove = (changed >= 0 && this.board.charAt(changed) == '.') ? changed : -1;
+        }
         this.turn = turn;
         this.board = board;
     }
@@ -129,6 +144,11 @@ public class GameSession
     public char cell(int row, int col)
     {
         return board.charAt(row * COLUMNS + col);
+    }
+
+    public boolean isLastMove(int row, int col)
+    {
+        return row * COLUMNS + col == lastMove;
     }
 
     // Only on our turn and in a column that still has room: the server would

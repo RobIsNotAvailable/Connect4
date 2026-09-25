@@ -28,8 +28,10 @@ public class GamePanel extends JPanel
     // The game on screen. All the state (board, turn, names) is in it; the
     // panel only draws it and turns the clicks into messages.
     private GameSession session;
+    private JLabel turnLabel;
     private JLabel awayLabel;
     private JLabel notificationLabel;
+    private final JButton[] columnButtons = new JButton[GameSession.COLUMNS];
     private javax.swing.Timer notificationTimer;
 
     public GamePanel(GameController games, GameEndController ends, GameSession session)
@@ -100,9 +102,14 @@ public class GamePanel extends JPanel
         // the board does not change size when it appears.
         awayLabel = UiUtil.createStripLabel(UiUtil.ACCENT, UiUtil.BACKGROUND_BLACK);
 
+        // Between the two: whose turn it is, in words.
+        turnLabel = UiUtil.createStyledLabel(" ");
+        turnLabel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
         top.add(header, BorderLayout.NORTH);
+        top.add(turnLabel, BorderLayout.CENTER);
         top.add(awayLabel, BorderLayout.SOUTH);
         add(top, BorderLayout.NORTH);
 
@@ -117,6 +124,7 @@ public class GamePanel extends JPanel
             final int col = i;
             JButton btn = UiUtil.createStyledButton("Col " + (i + 1));
             UiUtil.addKeyBinding(btn, String.valueOf(i + 1));
+            columnButtons[i] = btn;
             
             btn.addActionListener(e -> play(col));
             controlsPanel.add(btn);
@@ -204,12 +212,23 @@ public class GamePanel extends JPanel
         boardView.repaint();
     }
 
-    // The player on turn is at full brightness and the other one is dimmed.
-    // When the game is over (turn 0) both are back to normal.
+    // The player on turn is at full brightness and the other one is dimmed,
+    // and the line under the bar says it: in the colour of our discs when it
+    // is our turn. The column buttons work only where we can play. When the
+    // game is over (turn 0) both players are back to normal, the line blank.
     private void showTurn(int turn)
     {
         styleBadge(player1Label, UiUtil.playerColor(1), turn != 2);
         styleBadge(player2Label, UiUtil.playerColor(2), turn != 1);
+
+        boolean mine = (turn == session.getMyPlayer());
+        turnLabel.setText(mine ? "Your turn" : turn != 0 ? session.getOpponent() + "'s turn" : " ");
+        turnLabel.setForeground(mine ? UiUtil.playerColor(turn) : Color.WHITE);
+
+        for(int col = 0; col < GameSession.COLUMNS; col++)
+        {
+            columnButtons[col].setEnabled(session.canPlay(col));
+        }
     }
 
     private void styleBadge(JLabel label, Color color, boolean active)

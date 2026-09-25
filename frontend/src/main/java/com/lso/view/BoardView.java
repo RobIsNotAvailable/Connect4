@@ -1,5 +1,6 @@
 package com.lso.view;
 
+import java.awt.BasicStroke;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -118,6 +119,17 @@ class BoardView extends JPanel
 
                 g2d.setColor(UiUtil.ACCENT);
                 g2d.drawOval(x, y, diameter, diameter);
+
+                // A ring inside the disc of the last move, so whoever looks
+                // at the board (or comes back to this game) sees what changed.
+                if (session.isLastMove(row, col))
+                {
+                    int inset = diameter / 4;
+                    g2d.setColor(UiUtil.withAlpha(UiUtil.BACKGROUND_BLACK, 160));
+                    g2d.setStroke(new BasicStroke(3f));
+                    g2d.drawOval(x + inset, y + inset, diameter - 2 * inset, diameter - 2 * inset);
+                    g2d.setStroke(new BasicStroke(1f));
+                }
             }
         }
     }
