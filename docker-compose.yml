@@ -1,0 +1,20 @@
+services:
+  # The game server, reachable from the host too on port 8080.
+  server:
+    build: .
+    ports:
+      - "8080:8080"
+
+  # The clients, each with its own window on the screen of the host (its X
+  # server). How many: CLIENTS=4 docker compose up, or docker compose up
+  # --scale clients=4 (2 if not said).
+  clients:
+    build: ./frontend
+    depends_on:
+      - server
+    deploy:
+      replicas: ${CLIENTS:-2}
+    environment:
+      - DISPLAY=${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
