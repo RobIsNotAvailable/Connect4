@@ -11,28 +11,82 @@ Progetto di Laboratorio di Sistemi Operativi: Forza 4.
 
 ## Avvio con Docker Compose
 
-Serve Docker con Docker Compose. I client aprono le loro finestre sullo
-schermo del computer, quindi serve anche un server grafico X (vedi
-[Finestre dei client](#finestre-dei-client)).
+Serve Docker con Docker Compose (su Windows e macOS: Docker Desktop). Il
+compose avvia il server e **2 client**. I client aprono le loro finestre sullo
+schermo del computer attraverso un server grafico X: come averlo dipende dal
+sistema. `--build` serve la prima volta e dopo ogni modifica al codice.
 
-Dalla cartella del progetto:
+### Windows 11
+
+Serve Docker Desktop con WSL2. Il server grafico è WSLg, già incluso in
+Windows 11. Tutti i comandi si lanciano dalla cartella del progetto.
+
+**Dal terminale di WSL** (per esempio Ubuntu):
 
 ```sh
 docker compose up --build
 ```
 
-Costruisce le immagini e avvia il server e **2 client**, cioè due finestre.
-`--build` serve la prima volta e dopo ogni modifica al codice.
+**Da PowerShell.** Docker Desktop vede il server grafico di WSLg in un altro
+percorso, che va indicato con la variabile `X11_SOCKET`:
+
+```powershell
+$env:X11_SOCKET="/run/desktop/mnt/host/wslg/.X11-unix"
+docker compose up --build
+```
+
+`$env:` vale solo per quel terminale. Per impostarla una volta per tutte:
+
+```powershell
+setx X11_SOCKET /run/desktop/mnt/host/wslg/.X11-unix
+```
+
+Poi si chiude e si riapre PowerShell (se si usa il terminale di VS Code, tutto
+VS Code). Da lì basta `docker compose up`. La variabile vale solo per i
+terminali di Windows, non per WSL.
+
+### Linux
+
+Serve un desktop grafico con X (Xorg, oppure XWayland sotto Wayland). Il
+compose usa il `DISPLAY` della sessione. Prima di avviare bisogna permettere ai
+container di aprire finestre:
+
+```sh
+xhost +local:
+docker compose up --build
+```
+
+Quando hai finito, `xhost -local:` toglie il permesso.
+
+### macOS
+
+1. Installare [XQuartz](https://www.xquartz.org/).
+2. Nelle sue impostazioni, alla voce Sicurezza, attivare "Allow connections
+   from network clients".
+3. Chiudere e riaprire XQuartz.
+4. Da un terminale:
+
+   ```sh
+   xhost +localhost
+   DISPLAY=host.docker.internal:0 docker compose up --build
+   ```
 
 ### Scegliere quanti client
 
+In qualsiasi terminale:
+
 ```sh
-CLIENTS=4 docker compose up
-docker compose up --scale clients=4
+docker compose up    
 ```
 
-I due comandi sono equivalenti. Per aggiungere client mentre è già tutto
-avviato, da un altro terminale:
+Lo stesso si può fare con la variabile `CLIENTS`:
+
+- **bash o zsh** (WSL, Linux, macOS): `CLIENTS=4 docker compose up`
+- **PowerShell:** `$env:CLIENTS=4`, poi `docker compose up`
+
+Per aggiungere client mentre è già tutto avviato, da un altro terminale che
+abbia le stesse variabili del primo (`X11_SOCKET` in PowerShell, `DISPLAY` su
+macOS):
 
 ```sh
 docker compose up -d --scale clients=6
@@ -51,31 +105,6 @@ Log del server: `docker compose logs -f server`.
 
 Il server è raggiungibile anche dall'host sulla porta **8080**, quindi un client
 avviato fuori da Docker (vedi sotto) può giocare con quelli nei container.
-
-### Finestre dei client
-
-I container disegnano sul server X dell'host. Il compose passa loro `DISPLAY` e
-monta `/tmp/.X11-unix`.
-
-- **Windows 11 (WSL2 con WSLg):** dal terminale di WSL funziona così com'è. Da
-  PowerShell il socket X di WSLg per Docker Desktop è in un altro percorso:
-  ```powershell
-  $env:X11_SOCKET="/run/desktop/mnt/host/wslg/.X11-unix"
-  docker compose up --build
-  ```
-- **Linux (Xorg):** prima di avviare bisogna permettere ai container di aprire
-  finestre:
-  ```sh
-  xhost +local:
-  ```
-  Quando hai finito, con `xhost -local:` il permesso si toglie.
-- **macOS:** installare [XQuartz](https://www.xquartz.org/) e, nelle sue
-  impostazioni (Sicurezza), attivare "Allow connections from network clients".
-  Poi, riavviato XQuartz:
-  ```sh
-  xhost +localhost
-  DISPLAY=host.docker.internal:0 docker compose up --build
-  ```
 
 ## Avvio senza Docker
 
