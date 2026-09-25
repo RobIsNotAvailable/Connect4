@@ -14,7 +14,9 @@ services:
       - server
     deploy:
       replicas: ${CLIENTS:-2}
+    # X11_SOCKET: where the X socket is for the Docker daemon, when it is not
+    # /tmp/.X11-unix (Windows PowerShell, see the README).
     environment:
-      - DISPLAY=${DISPLAY}
+      - DISPLAY=${DISPLAY:-:0}
     volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${X11_SOCKET:-/tmp/.X11-unix}:/tmp/.X11-unix

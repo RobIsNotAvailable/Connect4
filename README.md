@@ -58,8 +58,12 @@ avviato fuori da Docker (vedi sotto) può giocare con quelli nei container.
 I container disegnano sul server X dell'host. Il compose passa loro `DISPLAY` e
 monta `/tmp/.X11-unix`.
 
-- **Windows 11 (WSL2 con WSLg):** funziona così com'è, lanciando i comandi dal
-  terminale di WSL.
+- **Windows 11 (WSL2 con WSLg):** dal terminale di WSL funziona così com'è. Da
+  PowerShell il socket X di WSLg per Docker Desktop è in un altro percorso:
+  ```powershell
+  $env:X11_SOCKET="/run/desktop/mnt/host/wslg/.X11-unix"
+  docker compose up --build
+  ```
 - **Linux (Xorg):** prima di avviare bisogna permettere ai container di aprire
   finestre:
   ```sh
