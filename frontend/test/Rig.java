@@ -1,4 +1,4 @@
-import com.lso.controller.MainController;
+import com.lso.MainController;
 import com.lso.view.GamePanel;
 import com.lso.view.OverlayPanel;
 

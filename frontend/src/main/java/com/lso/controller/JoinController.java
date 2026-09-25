@@ -3,6 +3,7 @@ package com.lso.controller;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import com.lso.MainController;
 import com.lso.ServerConnection;
 import com.lso.view.Dialogs;
 import com.lso.view.LobbyPanel;
@@ -26,7 +27,7 @@ public class JoinController
     private final Map<Integer, AskedRoom> askedRooms = new LinkedHashMap<>();
     private int lastAsked;
 
-    JoinController(ServerConnection connection, Dialogs dialogs, LobbyPanel lobbyPanel)
+    public JoinController(ServerConnection connection, Dialogs dialogs, LobbyPanel lobbyPanel)
     {
         this.connection = connection;
         this.dialogs = dialogs;
@@ -52,7 +53,7 @@ public class JoinController
     // needs to see. A request can also end without the owner declining it: the
     // server cancels it when we reach MAX_MATCHES while it waits ('gamesCount'
     // is how many we have), and then nobody could accept it anyway.
-    void onResult(int id, boolean accepted, int gamesCount)
+    public void onResult(int id, boolean accepted, int gamesCount)
     {
         AskedRoom room = askedRooms.remove(id);
         showStatus();
@@ -78,14 +79,14 @@ public class JoinController
     }
 
     // A game starts in the room: if we asked for it, the request is over.
-    void onGameStart(int id)
+    public void onGameStart(int id)
     {
         askedRooms.remove(id);
         showStatus();
     }
 
     // A room we asked to join, deleted before its owner answered.
-    void onRoomClosed(int id)
+    public void onRoomClosed(int id)
     {
         AskedRoom asked = askedRooms.remove(id);
         if(asked != null)
@@ -97,7 +98,7 @@ public class JoinController
 
     // ERROR JOIN_GAME: refused at once, so it is the request just sent.
     // ALREADY_PENDING is someone else's request: ours are never sent twice.
-    void onRefused()
+    public void onRefused()
     {
         askedRooms.remove(lastAsked);
         showStatus();
@@ -105,9 +106,10 @@ public class JoinController
 
     // A player asks to join a room of ours. Both answers go to the server,
     // which starts the game on Accept.
-    void ask(String gameId, String joiner)
+    public void ask(String gameId, String roomName, String joiner)
     {
-        dialogs.joinRequest(gameId, "Join Request", joiner + " wants to join your room. Accept?",
+        String room = (roomName != null) ? "your room \"" + roomName + "\"" : "your room";
+        dialogs.joinRequest(gameId, "Join Request", joiner + " wants to join " + room + ". Accept?",
             new Choice("Accept", () -> answer(gameId, 1)),
             new Choice("Decline", () -> answer(gameId, 0)));
     }

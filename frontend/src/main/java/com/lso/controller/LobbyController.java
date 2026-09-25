@@ -1,7 +1,9 @@
 package com.lso.controller;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.lso.GameSession;
 import com.lso.NameCodec;
@@ -30,8 +32,9 @@ public class LobbyController
     // How many rooms and games we have, as the last MY_GAME_LIST said (see
     // MainController.MAX_MATCHES).
     private int myGamesCount;
+    private final Map<String, String> myRoomNames = new HashMap<>(); // id -> name, from the last MY_GAME_LIST
 
-    LobbyController(ServerConnection connection, Dialogs dialogs, LobbyPanel lobbyPanel, GameController games)
+    public LobbyController(ServerConnection connection, Dialogs dialogs, LobbyPanel lobbyPanel, GameController games)
     {
         this.connection = connection;
         this.dialogs = dialogs;
@@ -39,17 +42,17 @@ public class LobbyController
         this.games = games;
     }
 
-    String username()
+    public String username()
     {
         return username;
     }
 
-    int myGamesCount()
+    public int myGamesCount()
     {
         return myGamesCount;
     }
 
-    void onUsernameSet(String name)
+    public void onUsernameSet(String name)
     {
         username = name;
         lobbyPanel.setUsername(username);
@@ -59,7 +62,7 @@ public class LobbyController
 
     // OK pressed twice before the answer sends the name twice: the first one
     // was accepted, ALREADY_NAMED is the refusal of the second.
-    void onUsernameRefused(String code)
+    public void onUsernameRefused(String code)
     {
         if(!code.equals("ALREADY_NAMED"))
         {
@@ -70,13 +73,13 @@ public class LobbyController
     // A room name the server does not accept: the box comes back with the
     // name, to be corrected. It may take the place of a notice that appeared
     // when the box closed, which then waits its turn again.
-    void onRoomNameRefused(String code)
+    public void onRoomNameRefused(String code)
     {
         askRoomName(ErrorText.of(code) + " Choose another one:");
     }
 
     // The rooms we can ask to join.
-    void onGameList(String[] parts)
+    public void onGameList(String[] parts)
     {
         int count = Integer.parseInt(parts[1]);
         Object[][] data = new Object[count][3];
@@ -91,14 +94,21 @@ public class LobbyController
         lobbyPanel.updateGameList(data);
     }
 
+    // The name of a room of ours, or null if the list does not have it yet.
+    public String roomName(String id)
+    {
+        return myRoomNames.get(id);
+    }
+
     // Every room and game of ours, by id. A room that waits has "-" as
     // opponent, which is not read: it could also be the name of a real opponent.
-    void onMyGameList(String[] parts)
+    public void onMyGameList(String[] parts)
     {
         int count = Integer.parseInt(parts[1]);
         List<Object[]> rows = new ArrayList<>();
         int index = 2;
         myGamesCount = count;
+        myRoomNames.clear();
 
         for(int i = 0; i < count; i++)
         {
@@ -109,11 +119,12 @@ public class LobbyController
             String state = parts[index++];
             int turn = Integer.parseInt(parts[index++]);
             boolean away = parts[index++].equals("AWAY");
+            myRoomNames.put(id, name);
 
             if(!state.equals("WAITING"))
             {
                 games.setOpponentAway(Integer.parseInt(id), away);
-                rows.add(new Object[] {id, name, opponent, matchStatus(Integer.parseInt(id), state, turn, myPlayer), away ? "away" : ""});
+                rows.add(new Object[] {id, name, opponent, matchStatus(Integer.parseInt(id), state, turn, myPlayer), away ? "Away" : ""});
             }
             else
             {
@@ -139,7 +150,7 @@ public class LobbyController
 
     // The server refuses every command until a username is set, so this is
     // the first thing the client does. Quit closes the app.
-    void askUsername(String prompt)
+    public void askUsername(String prompt)
     {
         dialogs.ask(
             "Welcome to Connect 4",

@@ -1,7 +1,6 @@
 package com.lso.view;
 
-import com.lso.controller.MainController;
-
+import com.lso.MainController;
 // What the player reads when the server refuses something: never the code
 // itself, which is already in the "Received:" line on the console.
 public final class ErrorText

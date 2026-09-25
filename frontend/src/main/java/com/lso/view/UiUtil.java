@@ -57,6 +57,10 @@ public class UiUtil
 
     public static final Color BOARD_HOLE = new Color(20, 20, 20);
 
+    // The dot on the tab of a game where it is our turn: a colour of its own,
+    // neither player's.
+    public static final Color TURN_GREEN = new Color(58, 224, 97);
+
     // FlatLaf, dark, with the colours above for what it draws itself: the
     // accent (underline of the selected tab, focus rings) instead of its
     // blue, the selected rows, the headers of the tables and the scroll bars.
@@ -75,6 +79,8 @@ public class UiUtil
         UIManager.put("Button.toolbar.hoverBackground", ACCENT_SECONDARY); // createStyledButton
         UIManager.put("Button.toolbar.pressedBackground", ACCENT_SECONDARY.darker());
         UIManager.put("TableHeader.background", ACCENT_SECONDARY);
+        UIManager.put("TableHeader.hoverBackground", ACCENT_SECONDARY); // the headers do nothing on a click
+        UIManager.put("TableHeader.pressedBackground", ACCENT_SECONDARY);
         UIManager.put("TableHeader.foreground", Color.WHITE);
         UIManager.put("TableHeader.separatorColor", ACCENT_SECONDARY);
         UIManager.put("TableHeader.bottomSeparatorColor", ACCENT);
@@ -115,10 +121,11 @@ public class UiUtil
         button.setFont(button.getFont().deriveFont(Font.BOLD, 18f));
         button.setForeground(Color.WHITE);
 
-        // No box around it: FlatLaf paints only a background under the mouse
-        // or the click, and the focus ring when it is reached with Tab (a
-        // mouse click does not give it the focus, so no ring is left behind).
+        // No box around it and no focus ring: FlatLaf paints only a
+        // background under the mouse or the click. The focus still moves
+        // with Tab, but a mouse click does not take it.
         button.putClientProperty("JButton.buttonType", "borderless");
+        button.setFocusPainted(false);
         button.setRequestFocusEnabled(false);
         button.setMargin(new Insets(10, 15, 15, 15));
 

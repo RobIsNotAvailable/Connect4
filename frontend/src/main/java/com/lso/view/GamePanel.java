@@ -217,8 +217,8 @@ public class GamePanel extends JPanel
     }
 
     // The player on turn is at full brightness and the other one is dimmed,
-    // and the line under the bar says it: in the colour of our discs when it
-    // is our turn. The column buttons work only where we can play. When the
+    // and the line under the bar says it: in the accent when it is our turn,
+    // as "Your turn" in the lobby. The column buttons work only where we can play. When the
     // game is over (turn 0) both players are back to normal, the line blank.
     private void showTurn(int turn)
     {
@@ -227,7 +227,7 @@ public class GamePanel extends JPanel
 
         boolean mine = (turn == session.getMyPlayer());
         turnLabel.setText(mine ? "Your turn" : turn != 0 ? session.getOpponent() + "'s turn" : " ");
-        turnLabel.setForeground(mine ? UiUtil.playerColor(turn) : Color.WHITE);
+        turnLabel.setForeground(mine ? UiUtil.ACCENT : Color.WHITE);
 
         for(int col = 0; col < GameSession.COLUMNS; col++)
         {

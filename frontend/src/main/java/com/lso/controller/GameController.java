@@ -6,6 +6,7 @@ import java.util.Map;
 import javax.swing.JComponent;
 
 import com.lso.GameSession;
+import com.lso.MainController;
 import com.lso.ServerConnection;
 import com.lso.view.Dialogs;
 import com.lso.view.GameTabs;
@@ -28,7 +29,7 @@ public class GameController
     private final Map<Integer, GameSession> sessions = new HashMap<>();
     private GameSession viewed;
 
-    GameController(MainController controller, ServerConnection connection, Dialogs dialogs)
+    public GameController(MainController controller, ServerConnection connection, Dialogs dialogs)
     {
         this.controller = controller;
         this.connection = connection;
@@ -39,18 +40,18 @@ public class GameController
     }
 
     // The end of the games: the result, the rematch, leaving them.
-    GameEndController ends()
+    public GameEndController ends()
     {
         return ends;
     }
 
     // The game screen: the tabs of the games.
-    JComponent screen()
+    public JComponent screen()
     {
         return tabs;
     }
 
-    boolean isViewing()
+    public boolean isViewing()
     {
         return viewed != null;
     }
@@ -65,7 +66,7 @@ public class GameController
     // game and so replaces its session. The game takes the screen only if
     // nothing else is on it (or if it is the game on it already): a player in
     // the middle of another game must not be pulled out of it.
-    void onGameStart(int id, int myPlayer, String myName, String opponent)
+    public void onGameStart(int id, int myPlayer, String myName, String opponent)
     {
         GameSession session = new GameSession(id, myPlayer, myName, opponent);
         sessions.put(id, session);
@@ -86,7 +87,7 @@ public class GameController
 
     // A message can name a game we no longer have: we left it while the
     // message was on its way. It is ignored, like the ones below.
-    void onGameState(int id, int turn, String board)
+    public void onGameState(int id, int turn, String board)
     {
         GameSession session = sessions.get(id);
         if(session == null)
@@ -108,7 +109,7 @@ public class GameController
         connection.send("LIST_MY_GAMES");
     }
 
-    void onOpponentStatus(int id, boolean away)
+    public void onOpponentStatus(int id, boolean away)
     {
         if(sessions.containsKey(id))
         {
@@ -142,7 +143,7 @@ public class GameController
 
     // The bell of the boards: how many requests to join our rooms wait, and a
     // click shows the first one even during a game.
-    void setWaitingRequests(int count)
+    public void setWaitingRequests(int count)
     {
         tabs.setWaitingRequests(count);
     }
@@ -155,7 +156,7 @@ public class GameController
     // ERROR MOVE NOT_ACTIVE. We say which game we are on whenever we show one,
     // so this means our idea of the active game and the server's differ: say it
     // again. The move that was refused is lost, the next click works.
-    void onNotActive()
+    public void onNotActive()
     {
         if(viewed != null)
         {

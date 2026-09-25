@@ -67,7 +67,7 @@ public class LobbyPanel extends JPanel
         // one table deselects the other, so the buttons below always refer to
         // the one the player is looking at.
         myGamesTable = new UiUtil.TransparentTable("No games yet: join a room above or create one",
-                                                   "Game ID", "Name", "Opponent", "Status", "Opponent is");
+                                                   "Game ID", "Name", "Opponent", "Status", "Opponent Status");
         myGamesTable.onDoubleClick(this::resumeSelected);
         myGamesTable.setDefaultRenderer(Object.class, new MyGamesRenderer());
 

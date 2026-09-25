@@ -88,12 +88,10 @@ public class GameTabs extends JTabbedPane
         }
     }
 
-    // A dot on the tab in the colour of our discs when it is our turn in that
-    // game, grey otherwise.
+    // A green dot on the tab when it is our turn in that game, grey otherwise.
     public void setMyTurn(int id, boolean myTurn)
     {
-        GamePanel panel = panelOf(id);
-        Color color = myTurn ? UiUtil.playerColor(panel.getSession().getMyPlayer()) : UiUtil.BACKGROUND_GRAY;
-        setIconAt(indexOfComponent(panel), FontIcon.of(FontAwesomeSolid.CIRCLE, 12, color));
+        Color color = myTurn ? UiUtil.TURN_GREEN : UiUtil.BACKGROUND_GRAY;
+        setIconAt(indexOfComponent(panelOf(id)), FontIcon.of(FontAwesomeSolid.CIRCLE, 12, color));
     }
 }

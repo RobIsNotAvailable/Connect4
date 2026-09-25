@@ -106,6 +106,12 @@ public class JoinTest extends Rig
         click("Decline");
         check("decline: sent", sent().equals(List.of("JOIN_RESPONSE 9 0")));
 
+        // The request names the room, once the list of our games has it.
+        server("MY_GAME_LIST 1 10 Mia - 1 WAITING 0 HERE");
+        server("JOIN_NOTIFY 10 Finn");
+        check("request: says which room", shown() && message().equals("Finn wants to join your room \"Mia\". Accept?"), box());
+        click("Decline");
+
         finish("JoinTest");
     }
 }

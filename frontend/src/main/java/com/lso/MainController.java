@@ -1,13 +1,14 @@
-package com.lso.controller;
+package com.lso;
 
 import java.awt.CardLayout;
 
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
-import com.lso.GameSession;
-import com.lso.NameCodec;
-import com.lso.ServerConnection;
+import com.lso.controller.GameController;
+import com.lso.controller.GameEndController;
+import com.lso.controller.JoinController;
+import com.lso.controller.LobbyController;
 import com.lso.view.Dialogs;
 import com.lso.view.ErrorText;
 import com.lso.view.LobbyPanel;
@@ -65,12 +66,12 @@ public class MainController
     }
 
     // The two screens of the window.
-    void showLobby()
+    public void showLobby()
     {
         cardLayout.show(mainPanel, "Lobby");
     }
 
-    void showGames()
+    public void showGames()
     {
         cardLayout.show(mainPanel, "Games");
     }
@@ -132,7 +133,7 @@ public class MainController
                 break;
 
             case "JOIN_NOTIFY":
-                joins.ask(parts[1], NameCodec.decode(parts[2]));
+                joins.ask(parts[1], lobby.roomName(parts[1]), NameCodec.decode(parts[2]));
                 break;
 
             case "JOIN_CANCELLED":

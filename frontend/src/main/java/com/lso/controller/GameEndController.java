@@ -24,7 +24,7 @@ public class GameEndController
 
     // What the player does at the end of a game is asked only on the game they
     // are looking at. The result is kept in the session for the others.
-    void onGameOver(int id, GameSession.Result result)
+    public void onGameOver(int id, GameSession.Result result)
     {
         GameSession session = games.session(id);
         if(session == null)
@@ -46,7 +46,7 @@ public class GameEndController
 
     // The opponent voted for a rematch first: the same box is drawn again, now
     // saying so. It only arrives to a player who has not voted yet.
-    void onRematchNotify(int id)
+    public void onRematchNotify(int id)
     {
         GameSession session = games.session(id);
         if(session == null)
@@ -71,7 +71,7 @@ public class GameEndController
     // overlay was showing (the rematch vote or its "waiting" message). If we
     // already went back to the lobby ourselves there is no session any more
     // and the message is stale.
-    void onOpponentLeft(int id)
+    public void onOpponentLeft(int id)
     {
         GameSession session = games.forget(id);
         connection.send("LIST_MY_GAMES");
